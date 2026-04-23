@@ -432,6 +432,8 @@ with tabs[3]:
         "⚠️ Onaylanmamış içerikler eğitime aktarılmaz. Lütfen tüm içerikleri inceleyin."
     )
 
+    from src.retrieval import lookup_parent_context
+
     approvals = st.session_state["approvals"]
     total_items = 0
     approved_count = 0
@@ -444,6 +446,7 @@ with tabs[3]:
         items: list,
         label_fn,
         detail_fn,
+        citations_fn=None,
     ) -> tuple[int, int, int]:
         """
         Render an approval section with approve/reject buttons per item.
@@ -482,6 +485,31 @@ with tabs[3]:
 
             with st.expander(f"{label} — {'✅ Onaylandı' if current_state == 'onaylandi' else '❌ Reddedildi' if current_state == 'reddedildi' else '⏳ İnceleniyor'}"):
                 st.markdown(detail)
+
+                # Show source chunk details if citations are available
+                if citations_fn is not None:
+                    citation_ids = citations_fn(item)
+                    if citation_ids:
+                        with st.expander("📎 Kaynak Chunk Detayları", expanded=False):
+                            for pid in citation_ids:
+                                ctx = lookup_parent_context(str(pid))
+                                if ctx:
+                                    src_label = "📘 Mevzuat" if ctx["source"] == "explicit" else "🧠 Tacit"
+                                    st.markdown(
+                                        f"**{src_label}** — `{pid}` | {ctx['filename']}"
+                                    )
+                                    st.markdown("**Üst Bağlam — LLM'ye gönderilen:**")
+                                    st.info(ctx["parent_text"])
+                                    if ctx["children"]:
+                                        st.markdown("**Eşleşen Alt Parçalar — vektör aramasında bulunan:**")
+                                        for child in ctx["children"]:
+                                            st.success(
+                                                f"Alt Parça #{child['child_index']}: {child['text']}"
+                                            )
+                                    st.markdown("---")
+                                else:
+                                    st.caption(f"`{pid}` — chunk bulunamadı (veritabanı yenilenmesi gerekebilir)")
+
                 col_a, col_r, col_c = st.columns([1, 1, 4])
                 with col_a:
                     if st.button("✓ Onayla", key=f"approve_{section_key}_{idx}"):
@@ -513,8 +541,9 @@ with tabs[3]:
             f"**Karar Noktası:** {s.get('karar_noktasi', '')}\n\n"
             f"**Risk:** {s.get('risk', '')}\n\n"
             f"**Kontrol:** {s.get('kontrol', '')}\n\n"
-            f"📌 Chunk indeksleri: {s.get('kaynak_chunk_indeksleri', [])}"
+            f"📌 Kaynak: {s.get('kaynak_chunk_indeksleri', [])}"
         ),
+        citations_fn=lambda s: s.get("kaynak_chunk_indeksleri", []),
     )
     total_items += t; approved_count += a; rejected_count += r
 
@@ -533,8 +562,9 @@ with tabs[3]:
             f"**Kök Neden:** {c.get('kök_neden', '')}\n\n"
             f"**Tespit Yöntemi:** {c.get('tespit_yöntemi', '')}\n\n"
             f"**Doğru Uygulama:** {c.get('dogru_uygulama', '')}\n\n"
-            f"📌 Chunk indeksleri: {c.get('kaynak_chunk_indeksleri', [])}"
+            f"📌 Kaynak: {c.get('kaynak_chunk_indeksleri', [])}"
         ),
+        citations_fn=lambda c: c.get("kaynak_chunk_indeksleri", []),
     )
     total_items += t; approved_count += a; rejected_count += r
 
@@ -551,8 +581,9 @@ with tabs[3]:
         detail_fn=lambda t_: (
             f"**Tanım:** {t_.get('tanim', '')}\n\n"
             f"**Kullanım Örneği:** {t_.get('kullanim_ornegi', '')}\n\n"
-            f"📌 Chunk indeksleri: {t_.get('kaynak_chunk_indeksleri', [])}"
+            f"📌 Kaynak: {t_.get('kaynak_chunk_indeksleri', [])}"
         ),
+        citations_fn=lambda t_: t_.get("kaynak_chunk_indeksleri", []),
     )
     total_items += t; approved_count += a; rejected_count += r
 
@@ -570,8 +601,9 @@ with tabs[3]:
             f"**Durum:** {s.get('durum_aciklamasi', '')}\n\n"
             f"**Soru:** {s.get('soru', '')}\n\n"
             f"**Öğrenme Hedefi:** {s.get('ogrenme_hedefi', '')}\n\n"
-            f"📌 Chunk indeksleri: {s.get('kaynak_chunk_indeksleri', [])}"
+            f"📌 Kaynak: {s.get('kaynak_chunk_indeksleri', [])}"
         ),
+        citations_fn=lambda s: s.get("kaynak_chunk_indeksleri", []),
     )
     total_items += t; approved_count += a; rejected_count += r
 
@@ -746,7 +778,7 @@ with tabs[5]:
         try:
             client = _chromadb.PersistentClient(path=str(_chroma_dir))
             col = client.get_or_create_collection(
-                name="tee_knowledge_base",
+                name="tee_children",
                 metadata={"hnsw:space": "cosine"},
             )
             if col.count() == 0:
@@ -758,7 +790,8 @@ with tabs[5]:
                     "text": doc,
                     "source": meta.get("source", "bilinmiyor"),
                     "filename": meta.get("filename", "bilinmiyor"),
-                    "chunk_index": meta.get("chunk_index", 0),
+                    "chunk_index": meta.get("child_index", 0),
+                    "parent_id": meta.get("parent_id", ""),
                     "char_count": meta.get("char_count", len(doc)),
                 })
             chunks.sort(key=lambda c: (c["source"], c["chunk_index"]))
@@ -823,14 +856,15 @@ with tabs[5]:
                 preview += "…"
 
             with st.expander(
-                f"{badge_lbl}  ·  Parça #{chunk['chunk_index']}  ·  {chunk['char_count']} karakter"
+                f"{badge_lbl}  ·  Alt Parça #{chunk['chunk_index']}  ·  {chunk['char_count']} karakter"
             ):
                 st.markdown(
                     f"""<div class="chunk-card {css_cls}">
                     <div class="chunk-meta">
                         <span class="chunk-badge {badge_cls}">{badge_lbl}</span>
                         Dosya: <b>{chunk['filename']}</b> &nbsp;·&nbsp;
-                        Parça indeksi: <b>{chunk['chunk_index']}</b> &nbsp;·&nbsp;
+                        Alt parça: <b>#{chunk['chunk_index']}</b> &nbsp;·&nbsp;
+                        Üst parça: <b>{chunk['parent_id']}</b> &nbsp;·&nbsp;
                         {chunk['char_count']} karakter
                     </div>
                     <div class="chunk-text">{chunk['text'].replace(chr(10), '<br>')}</div>

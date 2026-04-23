@@ -35,6 +35,7 @@ from src.ingestion import (
     MIN_CHUNK_CHARS,
     MAX_CHUNK_CHARS,
     COLLECTION_NAME,
+    CHILD_COLLECTION_NAME,
     CHROMA_DIR,
     insert_new_document,
 )
