@@ -1,0 +1,42 @@
+MAAŞ MUTEMEDİ DENEYİM MÜLAKATİ — HAM TRANSKRIPT
+Görüşme Tarihi: 12.03.2024 | Süre: ~15 dakika
+Görüşmeci: Eğitim Koordinatörü
+Deneyimli Personel: Müdür Yardımcısı Fahri Şahin (22 yıllık deneyim)
+
+---
+
+Görüşmeci: Fahri Bey, merhaba. Maaş mutemetliği görevinizde yaşadığınız en zorlu dönemi anlatabilir misiniz?
+
+Fahri Şahin: Merhaba. Tabii anlatayım. 2016 yılı Temmuz ayıydı. Biliyorsunuz o dönemde olağanüstü hal ilan edildi ve ardından ihraç kararnameleri geldi. Bir gecede 14 personelin ihraç edildiğini öğrendik. Bunların bir kısmı aynı gün içinde görevden el çektirildi. Maaş sisteminde bu kişilerin ayrılış bildirimlerini anında işlemem, açık maaşlarını durdurmam ve o ay içinde zaten ödeme yapıldıysa fazla ödeme yazıları hazırlamamı gerekti. Üstelik bunların arasında o ay maaşını banka hesabı değişikliği talep etmiş biri vardı. Ahmet Yılmaz diye bir personeldi, dosyasında eski IBAN ile yeni IBAN vardı; 12345678901 TC kimlik numaralı bu kişinin hesap değişikliği henüz onaylanmamıştı, ödeme eski hesaba gitti. Yani bir yandan ihraç işlemleri, bir yandan fazla ödeme yazıları, bir yandan hesap sorunları. O gece saat 02.00'ye kadar çalıştım.
+
+Görüşmeci: Peki bu süreçte size en çok ne yardımcı oldu?
+
+Fahri Şahin: Tecrübe. Ve o yıllarda biriktirdiğim el yazısıyla tuttuğum defterdeki notlar. Hiçbir yönergede "ihraç durumunda maaş durdurma adım adım nasıl yapılır" diye bir şey yazmaz. Bunları zamanla öğrenirsiniz. Ben de şimdi bu bilgiyi sözlü olarak aktarıyorum genç arkadaşlara ama bir yere yazılı geçmiyor, bu bir sorun.
+
+Görüşmeci: Yeni gelen mutemetlerin en çok yaptığı 3 hatayı sıralayabilir misiniz?
+
+Fahri Şahin: Kesinlikle. Birincisi: Göreve başlama belgesini beklemeden maaş sisteme işliyorlar. Bu çok tehlikeli. Belge yoksa maaş işlenemez, ama bazı yeni arkadaşlar "personel zaten göreve başladı, işliyeyim" diye giriyor. Sonra personel göreve başlama formunu imzalamamış çıkıyor, denetimde büyük sorun oluyor. İkincisi: Gelir vergisi kümülatif matrahını Ocak ayında sıfırlamayı unutuyorlar. Ocak bordrosunu hazırlarken bir önceki yılın matrahı üzerinden devam ediyorlar. Bu durumda çalışan yanlış vergi diliminden vergi ödüyor, hem personel mağdur oluyor hem kurumun başı belaya giriyor. Üçüncüsü: İcra kesintilerinde limit kontrolü yapmıyorlar. Net aylığın 1/4'ü sınırını aşan kesinti yapıyorlar, personelden şikayet geliyor ve idari süreç başlıyor.
+
+Görüşmeci: Hiçbir yönergede yazmayan ama pratikte kritik bir kural var mı? "Bu iş böyle yapılır" dediğiniz bir şey?
+
+Fahri Şahin: (gülerek) Çok var ama bir tanesini söyleyeyim. Muhasebe birimindeki Zeynep Hanım — yani muhasebe şefi — her ayın 9'undan sonra gönderilen bordroları incelemeden bekletir. Biz bunu öğrendik. Yani yönerge diyor ki 10. güne kadar teslim edin, ama pratikte 9. gün saat 17.00'ye kadar göndermeyen bordrolar 10. günü göremeyebiliyor. Muhasebe biriminin kendi iç akışı var. Bu hiçbir yerde yazmıyor ama tüm deneyimli mutemet bilir. Bence bu tür kurum içi pratik bilgiler mutlaka yeni gelen personele aktarılmalı.
+
+Görüşmeci: Peki özel bir vaka anlatabilir misiniz? Örneğin ay ortasında işe başlayan biri ya da geriye dönük zam durumu?
+
+Fahri Şahin: İkisi de yaşadım. Ay ortası işe başlamada şunu yapıyoruz: Personelin o ay için kaç gün çalıştığını hesaplıyoruz. Diyelim ki 23 Mart'ta işe başladı, o ay 31 gün. Sadece 9 gün çalışmış sayılıyor. Brüt maaşı 31'e bölüp 9 ile çarpıyoruz. Kesintiler de bu kısmi tutar üzerinden orantılı uygulanıyor. Ama dikkat: SGK Form 4A bildirimi, personelin gerçek işe başlama tarihi olan 23 Mart olarak yapılmalı, yoksa prim gün eksikliği doğuyor. Ben bir arkadaşa bunu söylemediğim için 3 ay sonra tespit ettik ve geriye dönük bildirim düzeltmesi yapmak zorunda kaldık.
+
+Geriye dönük zam meselesine gelince: Toplu sözleşme görüşmeleri uzarsa, zam kararnamesi yayımlanıyor ama Temmuz başında yürürlüğe girmesi gerektiği halde Eylül'de çıkıyor. Bu durumda Temmuz, Ağustos, Eylül için fark bordroları düzenliyorsunuz. Her ay için ayrı bordro, ayrı kümülatif matrah hesabı. Bu dönemde 3 ayrı ay için hem gelir vergisi matrahı hem damga vergisi farkı hesaplamak gerekiyor. Çok dikkat istiyor. Ben bu işi ilk yaptığımda Selin Çelik adlı personelin Temmuz fark bordrosunu yanlış hesapladım; o ay kümülatif matrahı yanlış sıfırlamıştım. Neyse ki denetim öncesi fark ettim.
+
+Görüşmeci: İletişim bilgilerinizi kayıt altına alabilir miyiz?
+
+Fahri Şahin: Tabii, iş telefonum: 05321234567. Bankacılık işleri için IBAN'ım TR330006100519786457841326. Ama bu bilgilerin gizli tutulmasını rica ederim.
+
+Görüşmeci: Elbette, bu transkript anonim hale getirilecek. Son olarak, yeni bir mutemedin ilk ayında mutlaka bilmesi gereken en önemli şey nedir?
+
+Fahri Şahin: Bordroyu imzalamadan önce 3 kontrolü mutlaka yapın: Bir, kümülatif matrah bir önceki ay ile tutarlı mı; iki, icra kesintisi varsa 1/4 sınırı aşılıyor mu; üç, o ay içinde göreve başlama ya da ayrılış olan personel var mı, bunları eksiksiz işlediniz mi. Bu 3 kontrol yapılırsa hataların %80'i önlenir. Geri kalanı zaten deneyimle gelir.
+
+Görüşmeci: Fahri Bey, çok değerli bilgiler paylaştınız. Teşekkür ederim.
+
+Fahri Şahin: Rica ederim, bu bilgilerin yazıya geçmesi çok önemliydi. İyi çalışmalar.
+
+--- TRANSKRIPT SONU ---

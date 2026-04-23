@@ -1,0 +1,52 @@
+KAMU KURUMLARI MAAŞ MUTEMEDE YÖNERGESİ
+Yürürlük Tarihi: 01.01.2024 | Revizyon No: 3
+
+---
+
+MADDE 1 — MAAŞ HESAPLAMA ESASLARI VE KATSAYILAR
+
+Devlet memurlarının aylık maaşları, 657 sayılı Devlet Memurları Kanunu'nun 155. maddesi ve her yıl Bakanlar Kurulu Kararnamesi ile belirlenen katsayılar esas alınarak hesaplanır. Maaş hesaplamasında kullanılan temel katsayılar şunlardır: (a) Aylık katsayısı: Gösterge rakamının aylık katsayı ile çarpımı sonucu brüt aylığı oluşturur. (b) Taban aylık katsayısı: Tüm memurlara eşit olarak uygulanan sabit bir taban aylık unsurudur. (c) Yan ödeme katsayısı: Kadro unvanı ve çalışma koşullarına göre değişen ek ödemeyi belirler. Maaş mutemetleri, her dönem başında Maliye Bakanlığı Bütçe ve Mali Kontrol Genel Müdürlüğü'nün yayımladığı güncel katsayı cetvelini sisteme işlemekle yükümlüdür. Katsayı güncellemesinin geç girilmesi durumunda eksik ödeme ve fark mahsubu işlemi zorunlu hale gelir. Asgari geçim indirimi (AGİ) hesaplamalarında da güncel katsayı kullanılmalıdır.
+
+---
+
+MADDE 2 — KESİNTİ TÜRLERİ: SGK PRİMİ, GELİR VERGİSİ VE İCRA KESİNTİSİ
+
+Brüt maaş üzerinden yapılan kesintiler şu sırayla uygulanır: (a) SGK İşçi Payı (Emekli Keseği): Brüt aylığın %14'ü oranında kesilir; emeklilik, malullük ve ölüm sigortası primlerini kapsar. (b) Genel Sağlık Sigortası (GSS) Primi: Brüt aylığın %3'ü oranında uygulanır. (c) Gelir Vergisi: Kümülatif matrah üzerinden artan oranlı tarife ile hesaplanır (%15, %20, %27, %35). Her yıl Ocak ayında kümülatif matrah sıfırlanır; mutemetler bu sıfırlama işlemini ilgili bütçe yılının ilk maaş bordrosunda gerçekleştirmek zorundadır. (d) Damga Vergisi: Aylık ödeme bordrosunun binde 7,59'u oranında kesilir. (e) İcra Kesintisi: Mahkeme kararı veya icra müdürlüğü yazısı üzerine uygulanır; kesilebilecek azami tutar net aylığın 1/4'ünü geçemez. İcra kesintisi uygulamak için mutemedin icra müdürlüğünden yazılı tebligat alması ve bu tebligatı özlük dosyasına işlemesi zorunludur. Birden fazla icra kararı varsa, ilk gelen sıraya göre uygulanır ve toplam kesinti net aylığın 1/4'ünü aşamaz.
+
+---
+
+MADDE 3 — ÖDEME DÖNEMLERİ VE KESİN SON TARİHLER
+
+Kamu kurumlarında maaş ödemeleri her ayın 15'inde yapılır; tatile denk gelmesi halinde bir önceki iş gününde ödenir. Maaş bordroları, ödeme tarihinden en az 5 iş günü önce muhasebe birimine teslim edilmelidir. Bu süre aşılırsa maaş gecikmesinden mutemet sorumlu tutulur. Yılsonunda (31 Aralık) ek ödemeler (döner sermaye, ikramiye, fazla mesai ödemeleri) için kesin teslim tarihi 20 Aralık'tır; bu tarihten sonra yapılan eklemeler bir sonraki yıla sarkıtılamaz. Aylık hazırlık takvimi şu adımları kapsar: (1) Ay başında kadro değişikliklerinin sisteme işlenmesi, (2) 5. güne kadar nakil, göreve başlama ve ayrılış bildirimlerinin tamamlanması, (3) 8. güne kadar tüm ek ödeme ve kesinti bilgilerinin girilmesi, (4) 10. güne kadar bordronun bir üst amir tarafından onaylanması. Söz konusu takvime uyulmaması halinde mutemet hakkında idari işlem başlatılabilir.
+
+---
+
+MADDE 4 — ZORUNLU BELGE GEREKSİNİMLERİ
+
+Maaş mutemetleri aşağıdaki belgeleri ilgili personelin özlük dosyasında eksiksiz bulundurmak zorundadır:
+
+(a) Göreve Başlama Belgesi: Personelin kuruma ilk katıldığı günü resmi olarak belgeleyen, amir tarafından onaylanmış formdur. Bu belge ibraz edilmeden maaş sisteme işlenemez.
+
+(b) Aile Durum Bildirimi (Form-ADB-01): Medeni hal, çocuk sayısı ve bakmakla yükümlü olunan kişileri gösterir. Bu form maaş hesaplamasında aile yardımı ödeneğinin doğru belirlenmesi için zorunludur. Form değişikliklerinde (evlilik, boşanma, doğum, ölüm) 30 gün içinde güncellenmesi gerekmektedir.
+
+(c) İkametgah ve Nüfus Cüzdanı Fotokopisi: Kişinin resmi adres ve kimlik bilgileri için gereklidir.
+
+(d) SGK İşe Giriş Bildirimi (Form-4A): Personelin işe giriş tarihi itibarıyla SGK'ya bildiriminin yapıldığını gösteren belgedir. Bildirimi yapılmamış personele maaş ödenemez.
+
+(e) Banka Hesap Bildirim Formu: Maaşın yatırılacağı IBAN bilgisini içerir; kurum değişikliği ya da hesap değişikliğinde personelin yazılı talebi zorunludur.
+
+(f) Varsa İcra ve Haciz Yazıları: İcra müdürlüklerinden gelen tebligatların aslı dosyada saklanmalıdır.
+
+---
+
+MADDE 5 — HATA DURUMUNDA DÜZELTME VE İADE PROSEDÜRÜ
+
+Maaş hesaplamasında hata tespit edildiğinde aşağıdaki prosedür uygulanır:
+
+(a) Eksik Ödeme (Personel Lehine Fark): Eksik ödeme tespit edildiğinde mutemet, birim amirinin onayıyla bir sonraki ay bordrosuna fark ekleme talimatı düzenler. Fark ödemesinin açıklamasında "XX/20XX dönemi eksik ödeme farkı" ibaresi yer almalıdır.
+
+(b) Fazla Ödeme (Kurum Lehine Fark — İade): Fazla ödeme halinde personele yazılı tebligat yapılır. Personel 30 gün içinde gönüllü iade yapabilir ya da maaşından taksitli olarak kesinti uygulanabilir. Taksit tutarı aylık net maaşın 1/4'ünü aşamaz. Gönüllü iadede personelin imzalı taahhütnamesi alınır.
+
+(c) Sistematik Hata (Birden Fazla Personel Etkilendiyse): Birim amirine ve bütçe-muhasebe birimine derhal yazılı bildirim yapılır. Hata düzeltme tutanağı iki nüsha olarak düzenlenir; bir nüshası mutemede, diğeri muhasebe birimine verilir. Hata geçmiş dönemlere ait ise, hatalı dönem sayısı kadar fark bordrosu düzenlenir; her biri ayrı muhasebe fişiyle işleme alınır.
+
+(d) Düzeltme Takvimi: Hata tespitinden itibaren 5 iş günü içinde birime bildirim, 10 iş günü içinde düzeltme bordrosu hazırlanması zorunludur. Bu sürelerin aşılması halinde mutemet, kurumun her türlü zararından şahsen sorumlu tutulur.
