@@ -17,6 +17,7 @@ from pathlib import Path
 import chromadb
 from dotenv import load_dotenv
 from google import genai
+from google.genai import types
 
 load_dotenv()
 
@@ -62,7 +63,7 @@ def _embed_query(client: genai.Client, query: str) -> list[float]:
         response = client.models.embed_content(
             model="gemini-embedding-001",
             contents=query,
-            config={"task_type": "retrieval_query"},
+            config=types.EmbedContentConfig(task_type="RETRIEVAL_QUERY"),
         )
         return response.embeddings[0].values
     except Exception as exc:

@@ -13,6 +13,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from google import genai
+from google.genai import types
+from pydantic import BaseModel
 
 from src.retrieval import retrieve_context, build_context_text
 
@@ -22,7 +24,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger(__name__)
 
 MOCK_MODE = os.getenv("MOCK_MODE", "false").lower() == "true"
-GENERATION_MODEL = "gemini-2.5-flash"
+GENERATION_MODEL = "gemini-3-flash-preview"
 
 # ---------------------------------------------------------------------------
 # Grounding system prompt (injected into every generator call)
@@ -57,85 +59,57 @@ def _get_genai_client() -> genai.Client:
     return genai.Client(api_key=api_key)
 
 
-def _call_llm(client: genai.Client, prompt: str) -> str:
-    """
-    Send a prompt to gemini-2.5-flash and return the raw text response.
+# ---------------------------------------------------------------------------
+# Pydantic Schemas for Structured Output
+# ---------------------------------------------------------------------------
 
-    Parameters
-    ----------
-    client : genai.Client
-        Authenticated google-genai client.
-    prompt : str
-        Full prompt text.
+class ProcessStep(BaseModel):
+    adim_no: int
+    baslik: str
+    giris: str
+    cikis: str
+    karar_noktasi: str
+    risk: str
+    kontrol: str
+    kaynak_chunk_indeksleri: list[int]
 
-    Returns
-    -------
-    str
-        Model response text.
+class ProcessMapSchema(BaseModel):
+    steps: list[ProcessStep]
 
-    Raises
-    ------
-    RuntimeError
-        On API failure.
-    """
-    try:
-        response = client.models.generate_content(
-            model=GENERATION_MODEL,
-            contents=prompt,
-        )
-        return response.text.strip()
-    except Exception as exc:
-        raise RuntimeError(f"LLM API hatası: {exc}") from exc
+class ErrorCard(BaseModel):
+    kart_no: int
+    hata: str
+    kök_neden: str
+    tespit_yöntemi: str
+    dogru_uygulama: str
+    kaynak_chunk_indeksleri: list[int]
 
+class ErrorCardsSchema(BaseModel):
+    hata_kartlari: list[ErrorCard]
 
-def _parse_json_with_retry(client: genai.Client, prompt: str, raw: str) -> dict:
-    """
-    Attempt to parse a JSON string, retrying once if it fails.
+class Term(BaseModel):
+    terim: str
+    tanim: str
+    kullanim_ornegi: str
+    kaynak_chunk_indeksleri: list[int]
 
-    On first failure, appends a strict JSON instruction and re-calls the model.
-    On second failure, returns an error dict containing the raw output.
+class GlossarySchema(BaseModel):
+    terimler: list[Term]
 
-    Parameters
-    ----------
-    client : genai.Client
-        Authenticated google-genai client.
-    prompt : str
-        Original prompt (used for retry).
-    raw : str
-        Initial LLM response to parse.
+class SimulationOption(BaseModel):
+    id: str
+    metin: str
+    dogru_mu: bool
+    geri_bildirim: str
+    sonuc: str
 
-    Returns
-    -------
-    dict
-        Parsed JSON or error fallback.
-    """
-    # Strip markdown code fences if present
-    cleaned = raw.strip()
-    if cleaned.startswith("```"):
-        lines = cleaned.splitlines()
-        cleaned = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-
-    try:
-        return json.loads(cleaned)
-    except json.JSONDecodeError:
-        logger.warning("JSON ayrıştırma başarısız, yeniden deneniyor...")
-
-    retry_prompt = (
-        prompt
-        + "\n\nYALNIZCA geçerli JSON döndür. Markdown, açıklama veya ek metin ekleme."
-    )
-    try:
-        retry_raw = _call_llm(client, retry_prompt)
-        retry_cleaned = retry_raw.strip()
-        if retry_cleaned.startswith("```"):
-            lines = retry_cleaned.splitlines()
-            retry_cleaned = "\n".join(
-                lines[1:-1] if lines[-1].strip() == "```" else lines[1:]
-            )
-        return json.loads(retry_cleaned)
-    except (json.JSONDecodeError, RuntimeError) as exc:
-        logger.error("İkinci JSON ayrıştırma denemesi de başarısız: %s", exc)
-        return {"hata": "İçerik üretilemedi", "ham_çıktı": raw}
+class SimulationSchema(BaseModel):
+    senaryo_basligi: str
+    durum_aciklamasi: str
+    soru: str
+    secenekler: list[SimulationOption]
+    ogrenme_hedefi: str
+    kaynak_chunk_indeksleri: list[int]
 
 
 _MIN_CONTEXT_CHUNKS = 2       # Warn if retrieval returns fewer than this many chunks.
@@ -159,7 +133,7 @@ def _load_optimized_prompt(generator_key: str) -> dict | None:
         return None
 
 
-def _build_grounded_prompt(query: str, extra_instruction: str, top_k: int = 7) -> tuple[str, list[int]]:
+def _build_grounded_prompt(query: str, extra_instruction: str, top_k: int = 7) -> tuple[str, str, list[int]]:
     """
     Retrieve context for a query and compose a grounded prompt.
 
@@ -179,8 +153,9 @@ def _build_grounded_prompt(query: str, extra_instruction: str, top_k: int = 7) -
 
     Returns
     -------
-    tuple[str, list[int]]
-        - Full prompt string.
+    tuple[str, str, list[int]]
+        - System instruction string.
+        - User prompt string.
         - List of chunk indices used (for citation).
     """
     chunks = retrieve_context(query, top_k=top_k)
@@ -198,12 +173,12 @@ def _build_grounded_prompt(query: str, extra_instruction: str, top_k: int = 7) -
         )
 
     context_text, chunk_indices = build_context_text(chunks)
-    grounding_block = _GROUNDING_TEMPLATE.format(
+    system_instruction = _GROUNDING_TEMPLATE.format(
         context_text=context_text,
         chunk_indices=chunk_indices,
     )
-    full_prompt = grounding_block + "\n\n" + extra_instruction
-    return full_prompt, chunk_indices
+    user_prompt = extra_instruction
+    return system_instruction, user_prompt, chunk_indices
 
 
 # ---------------------------------------------------------------------------
@@ -410,11 +385,20 @@ Her adım için kullandığın kaynak chunk numaralarını kaynak_chunk_indeksle
 """
 
     try:
-        prompt, chunk_indices = _build_grounded_prompt(query, instruction, top_k=8)
+        system_instruction, user_prompt, chunk_indices = _build_grounded_prompt(query, instruction, top_k=8)
         logger.info("Süreç haritası oluşturuluyor. Kullanılan chunk indeksleri: %s", chunk_indices)
         client = _get_genai_client()
-        raw = _call_llm(client, prompt)
-        return _parse_json_with_retry(client, prompt, raw)
+        response = client.models.generate_content(
+            model=GENERATION_MODEL,
+            contents=user_prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=system_instruction,
+                temperature=0.1,
+                response_mime_type="application/json",
+                response_schema=ProcessMapSchema,
+            )
+        )
+        return json.loads(response.text)
     except Exception as exc:
         logger.error("Süreç haritası oluşturma hatası: %s", exc)
         return {"hata": str(exc), "ham_çıktı": ""}
@@ -460,11 +444,20 @@ Her kart için kullandığın kaynak chunk numaralarını kaynak_chunk_indeksler
 """
 
     try:
-        prompt, chunk_indices = _build_grounded_prompt(query, instruction, top_k=8)
+        system_instruction, user_prompt, chunk_indices = _build_grounded_prompt(query, instruction, top_k=8)
         logger.info("Hata kartları oluşturuluyor. Kullanılan chunk indeksleri: %s", chunk_indices)
         client = _get_genai_client()
-        raw = _call_llm(client, prompt)
-        return _parse_json_with_retry(client, prompt, raw)
+        response = client.models.generate_content(
+            model=GENERATION_MODEL,
+            contents=user_prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=system_instruction,
+                temperature=0.1,
+                response_mime_type="application/json",
+                response_schema=ErrorCardsSchema,
+            )
+        )
+        return json.loads(response.text)
     except Exception as exc:
         logger.error("Hata kartları oluşturma hatası: %s", exc)
         return {"hata": str(exc), "ham_çıktı": ""}
@@ -508,11 +501,20 @@ Her terim için kullandığın kaynak chunk numaralarını kaynak_chunk_indeksle
 """
 
     try:
-        prompt, chunk_indices = _build_grounded_prompt(query, instruction, top_k=8)
+        system_instruction, user_prompt, chunk_indices = _build_grounded_prompt(query, instruction, top_k=8)
         logger.info("Terim sözlüğü oluşturuluyor. Kullanılan chunk indeksleri: %s", chunk_indices)
         client = _get_genai_client()
-        raw = _call_llm(client, prompt)
-        return _parse_json_with_retry(client, prompt, raw)
+        response = client.models.generate_content(
+            model=GENERATION_MODEL,
+            contents=user_prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=system_instruction,
+                temperature=0.1,
+                response_mime_type="application/json",
+                response_schema=GlossarySchema,
+            )
+        )
+        return json.loads(response.text)
     except Exception as exc:
         logger.error("Terim sözlüğü oluşturma hatası: %s", exc)
         return {"hata": str(exc), "ham_çıktı": ""}
@@ -576,11 +578,20 @@ Doğru cevap seçeneğinde "dogru_mu": true olmalı. Kaynak chunk numaralarını
 """
 
     try:
-        prompt, chunk_indices = _build_grounded_prompt(query, instruction, top_k=7)
+        system_instruction, user_prompt, chunk_indices = _build_grounded_prompt(query, instruction, top_k=7)
         logger.info("Simülasyon senaryosu oluşturuluyor. Kullanılan chunk indeksleri: %s", chunk_indices)
         client = _get_genai_client()
-        raw = _call_llm(client, prompt)
-        return _parse_json_with_retry(client, prompt, raw)
+        response = client.models.generate_content(
+            model=GENERATION_MODEL,
+            contents=user_prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=system_instruction,
+                temperature=0.1,
+                response_mime_type="application/json",
+                response_schema=SimulationSchema,
+            )
+        )
+        return json.loads(response.text)
     except Exception as exc:
         logger.error("Simülasyon senaryosu oluşturma hatası: %s", exc)
         return {"hata": str(exc), "ham_çıktı": ""}

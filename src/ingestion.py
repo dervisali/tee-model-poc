@@ -19,6 +19,7 @@ from pathlib import Path
 import chromadb
 from dotenv import load_dotenv
 from google import genai
+from google.genai import types
 
 load_dotenv()
 
@@ -258,7 +259,7 @@ def _embed_chunk(client: genai.Client, chunk_text: str) -> list[float]:
         response = client.models.embed_content(
             model="gemini-embedding-001",
             contents=chunk_text,
-            config={"task_type": "retrieval_document"},
+            config=types.EmbedContentConfig(task_type="RETRIEVAL_DOCUMENT"),
         )
         return response.embeddings[0].values
     except Exception as exc:
