@@ -1,41 +1,45 @@
 """
-Retrieval layer for TEE-Model POC.
+TEE-Model retrieval katmanı — Parent Document Retrieval (PDR).
 
-Embeds user queries with gemini-embedding-001 and fetches the most semantically
-relevant chunks from the ChromaDB vector store.
+Akış:
+  1. Sorgu, multilingual-e5-large ile gömülür ('query:' öneki ile).
+  2. tee_children koleksiyonunda en yakın top_k*3 child aranır (over-fetch).
+  3. Mesafe eşiğinin altındakiler, parent_id bazında deduplicate edilir
+     (her parent için en yakın child saklanır).
+  4. Parent metinleri parents.json'dan çözülür ve LLM'e gönderilmek üzere
+     döndürülür.
+
+Phase 1.3: Hybrid search (BM25 + dense, RRF füzyonu) ayrı bir sarmalayıcı
+modülde uygulanır; bu modül yoğun (dense) yolu sağlar ve gerek duyuldukça
+oradan çağrılır.
 """
 
-import os
+from __future__ import annotations
+
+import json
 import logging
 from pathlib import Path
 
 import chromadb
-from dotenv import load_dotenv
-from google import genai
 
-load_dotenv()
+from src.config import settings
+from src.embeddings import embed_query
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+
 logger = logging.getLogger(__name__)
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-CHROMA_DIR = BASE_DIR / "chroma_db"
-COLLECTION_NAME = "tee_knowledge_base"
+
+CHROMA_DIR = settings.CHROMA_DIR
+PARENTS_JSON = CHROMA_DIR / "parents.json"
+COLLECTION_NAME = settings.CHILD_COLLECTION_NAME
 
 
-def _get_genai_client() -> genai.Client:
-    """Initialise and return the google-genai client using GOOGLE_API_KEY."""
-    api_key = os.getenv("GOOGLE_API_KEY")
-    if not api_key:
-        raise EnvironmentError(
-            "GOOGLE_API_KEY ortam değişkeni bulunamadı. "
-            "Lütfen .env dosyasını kontrol edin."
-        )
-    return genai.Client(api_key=api_key)
-
+# ---------------------------------------------------------------------------
+# Yardımcılar
+# ---------------------------------------------------------------------------
 
 def _get_chroma_collection() -> chromadb.Collection:
-    """Return the persistent ChromaDB collection. Raises if it does not exist."""
+    """Aktif child koleksiyonunu döndürür."""
     client = chromadb.PersistentClient(path=str(CHROMA_DIR))
     return client.get_or_create_collection(
         name=COLLECTION_NAME,
@@ -43,89 +47,150 @@ def _get_chroma_collection() -> chromadb.Collection:
     )
 
 
-def _embed_query(client: genai.Client, query: str) -> list[float]:
-    """
-    Embed a user query for similarity search.
+def _load_parents() -> dict:
+    """parents.json dosyasını yükler."""
+    if PARENTS_JSON.exists():
+        return json.loads(PARENTS_JSON.read_text(encoding="utf-8"))
+    return {}
 
-    Uses gemini-embedding-001 with task_type='retrieval_query'.
 
-    Parameters
-    ----------
-    client : genai.Client
-        Authenticated google-genai client.
-    query : str
-        The user's natural-language query string.
+def _embed_query(query: str) -> list[float]:
+    """Eski API ile uyumluluk takma adı (testler bunu import edebilir)."""
+    return embed_query(query)
 
-    Returns
-    -------
-    list[float]
-        Embedding vector for the query.
 
-    Raises
-    ------
-    RuntimeError
-        On API failure.
-    """
-    try:
-        response = client.models.embed_content(
-            model="gemini-embedding-001",
-            contents=query,
-            config={"task_type": "retrieval_query"},
-        )
-        return response.embeddings[0].values
-    except Exception as exc:
-        raise RuntimeError(f"Sorgu embedding hatası: {exc}") from exc
-
+# ---------------------------------------------------------------------------
+# Genel API
+# ---------------------------------------------------------------------------
 
 def retrieve_context(
     query: str,
-    top_k: int = 5,
-    source_filter: str = None,
-    distance_threshold: float = 0.7,
+    top_k: int | None = None,
+    source_filter: str | None = None,
+    distance_threshold: float | None = None,
+    *,
+    search_mode: str | None = None,
+    alpha: float | None = None,
 ) -> list[dict]:
     """
-    Retrieve the most semantically relevant document chunks for a query.
+    Sorgu için en alakalı parent parçalarını PDR ile döndürür.
 
-    Parameters
-    ----------
-    query : str
-        Natural-language query (Turkish).
-    top_k : int
-        Maximum number of results to return. Defaults to 5.
-    source_filter : str or None
-        Restrict results to "explicit", "tacit", or None for both.
+    search_mode:
+      - "dense"  : yalnızca yoğun (eski davranış, mesafe eşiği uygulanır)
+      - "sparse" : yalnızca BM25
+      - "hybrid" : RRF füzyonu (alpha None ise) veya ağırlıklı füzyon
+      - None     : settings.ENABLE_HYBRID_SEARCH true ise "hybrid", aksi halde "dense"
 
-    Returns
-    -------
-    list[dict]
-        Each item contains:
-            - "text": str          — chunk text
-            - "source": str        — "explicit" or "tacit"
-            - "filename": str      — source file name
-            - "chunk_index": int   — position in original document
-            - "distance": float    — cosine distance (lower = more similar)
+    Tüm modlarda parent_id bazında dedup uygulanır; her parent için en iyi
+    child saklanır (dense'te en yakın, sparse/hybrid'te en yüksek skor).
 
-    Raises
-    ------
-    ValueError
-        If the collection is empty or no results are found.
-    RuntimeError
-        On embedding API failure.
+    Geriye dönük uyum: distance_threshold yalnızca "dense" modunda anlamlıdır;
+    diğer modlarda yok sayılır (skor tabanlı sıralama uygulanır).
     """
+    top_k = top_k if top_k is not None else settings.RETRIEVAL_TOP_K
+    if search_mode is None:
+        search_mode = "hybrid" if settings.ENABLE_HYBRID_SEARCH else "dense"
+
+    parents = _load_parents()
+    if not parents:
+        raise ValueError(
+            "parents.json bulunamadı. Lütfen ingestion adımını tekrar çalıştırın."
+        )
+
+    if search_mode == "dense":
+        return _retrieve_dense(query, top_k, source_filter, distance_threshold, parents)
+
+    # Hibrit veya sparse — child seviyesinde arama, sonra parent_id'ye göre dedup
+    from src.hybrid_search import hybrid_search_children  # geç import (döngüsel sorun yok)
+
+    children = hybrid_search_children(
+        query,
+        top_k=top_k,
+        source_filter=source_filter,
+        search_mode=search_mode,
+        alpha=alpha,
+    )
+    if not children:
+        raise ValueError("Sorgu için hiçbir sonuç döndürülmedi.")
+
+    seen_parents: dict[str, dict] = {}
+    for child in children:
+        meta = child["metadata"]
+        parent_id = meta.get("parent_id", "")
+        if not parent_id or parent_id not in parents:
+            continue
+        # Hibritte yüksek skor iyi; mesafe ile uyumlu olsun diye distance = 1 - score saklanır
+        score = child["score"]
+        pseudo_distance = max(0.0, 1.0 - score) if score >= 0 else 1.0
+        if parent_id not in seen_parents or score > seen_parents[parent_id]["score"]:
+            seen_parents[parent_id] = {
+                "child_text": child["document"],
+                "child_index": meta.get("child_index", -1),
+                "distance": round(pseudo_distance, 4),
+                "score": round(score, 6),
+                "dense_distance": child.get("dense_distance"),
+                "bm25_score": child.get("bm25_score"),
+                "parent_id": parent_id,
+                "source": meta.get("source", "bilinmiyor"),
+                "filename": meta.get("filename", "bilinmiyor"),
+            }
+
+    ordered = sorted(seen_parents.values(), key=lambda r: r["score"], reverse=True)[:top_k]
+
+    formatted = []
+    for item in ordered:
+        parent_data = parents[item["parent_id"]]
+        parent_text = parent_data["text"]
+        formatted.append({
+            "child_text": item["child_text"],
+            "parent_text": parent_text,
+            "text": parent_text,
+            "source": item["source"],
+            "filename": item["filename"],
+            "parent_id": item["parent_id"],
+            "child_index": item["child_index"],
+            "distance": item["distance"],
+            "score": item["score"],
+            "dense_distance": item["dense_distance"],
+            "bm25_score": item["bm25_score"],
+            "search_mode": search_mode,
+        })
+
+    logger.info(
+        "Hibrit retrieval tamamlandı",
+        extra={
+            "event": "retrieval_complete",
+            "query_len": len(query),
+            "filter": source_filter or "all",
+            "results": len(formatted),
+            "search_mode": search_mode,
+            "top_score": formatted[0]["score"] if formatted else None,
+        },
+    )
+    return formatted
+
+
+def _retrieve_dense(
+    query: str,
+    top_k: int,
+    source_filter: str | None,
+    distance_threshold: float | None,
+    parents: dict,
+) -> list[dict]:
+    """Eski yoğun-yalnız retrieval mantığı; geriye uyumluluk için korunur."""
+    threshold = distance_threshold if distance_threshold is not None else settings.RETRIEVAL_DISTANCE_THRESHOLD
+
     collection = _get_chroma_collection()
     if collection.count() == 0:
         raise ValueError(
-            "Vektör veritabanı boş. Lütfen önce veri yükleme işlemini çalıştırın."
+            "Vektör veritabanı boş. Lütfen önce 'Veritabanını Yenile' adımını çalıştırın."
         )
 
-    client = _get_genai_client()
-    query_vector = _embed_query(client, query)
-
+    query_vector = _embed_query(query)
     where_clause = {"source": source_filter} if source_filter else None
-
-    query_kwargs = {
+    query_kwargs: dict = {
         "query_embeddings": [query_vector],
-        "n_results": top_k,
+        "n_results": min(top_k * 3, collection.count()),
         "include": ["documents", "metadatas", "distances"],
     }
     if where_clause:
@@ -141,74 +206,123 @@ def retrieve_context(
     distances = results.get("distances", [[]])[0]
 
     if not documents:
-        raise ValueError(
-            "Sorgu için hiçbir sonuç döndürülmedi. "
-            "Vektör veritabanı boş. Lütfen önce veri yükleme işlemini çalıştırın."
-        )
+        raise ValueError("Sorgu için hiçbir sonuç döndürülmedi.")
 
-    formatted = []
-    for doc, meta, dist in zip(documents, metadatas, distances):
-        if float(dist) > distance_threshold:
+    seen_parents: dict[str, dict] = {}
+    for child_text, meta, dist in zip(documents, metadatas, distances):
+        if float(dist) > threshold:
             continue
-        formatted.append(
-            {
-                "text": doc,
+        parent_id = meta.get("parent_id", "")
+        if not parent_id or parent_id not in parents:
+            continue
+        if parent_id not in seen_parents or float(dist) < seen_parents[parent_id]["distance"]:
+            seen_parents[parent_id] = {
+                "child_text": child_text,
+                "child_index": meta.get("child_index", -1),
+                "distance": round(float(dist), 4),
+                "parent_id": parent_id,
                 "source": meta.get("source", "bilinmiyor"),
                 "filename": meta.get("filename", "bilinmiyor"),
-                "chunk_index": meta.get("chunk_index", -1),
-                "distance": round(float(dist), 4),
             }
-        )
+
+    ordered = sorted(seen_parents.values(), key=lambda r: r["distance"])[:top_k]
+
+    formatted = []
+    for item in ordered:
+        parent_data = parents[item["parent_id"]]
+        parent_text = parent_data["text"]
+        formatted.append({
+            "child_text": item["child_text"],
+            "parent_text": parent_text,
+            "text": parent_text,
+            "source": item["source"],
+            "filename": item["filename"],
+            "parent_id": item["parent_id"],
+            "child_index": item["child_index"],
+            "distance": item["distance"],
+            "search_mode": "dense",
+        })
 
     logger.info(
-        "Sorgu: '%s' | Filtre: %s | Sonuç sayısı: %d | En iyi mesafe: %.4f",
-        query[:80],
-        source_filter or "tümü",
-        len(formatted),
-        formatted[0]["distance"] if formatted else 0.0,
+        "Dense retrieval tamamlandı",
+        extra={
+            "event": "retrieval_complete",
+            "query_len": len(query),
+            "filter": source_filter or "all",
+            "results": len(formatted),
+            "search_mode": "dense",
+            "top_distance": formatted[0]["distance"] if formatted else None,
+        },
     )
-
     return formatted
 
 
-def build_context_text(chunks: list[dict]) -> tuple[str, list[int]]:
+def build_context_text(chunks: list[dict]) -> tuple[str, list[str]]:
     """
-    Format retrieved chunks into a single context string for LLM prompts.
+    Retrieved parent parçalarını LLM bağlam metnine dönüştürür.
 
-    Parameters
-    ----------
-    chunks : list[dict]
-        Output of retrieve_context().
-
-    Returns
-    -------
-    tuple[str, list[int]]
-        - context_text: formatted context block
-        - chunk_indices: list of chunk_index values for citation
+    Döner
+    -----
+    tuple[str, list[str]]
+        - context_text: kaynak etiketleri ile parent metinleri.
+        - parent_ids: atıf kullanımı için.
     """
-    parts = []
-    indices = []
+    parts: list[str] = []
+    parent_ids: list[str] = []
     for i, chunk in enumerate(chunks):
-        label = (
-            f"[Kaynak {i + 1}: {chunk['filename']} — Chunk {chunk['chunk_index']}]"
-        )
-        parts.append(f"{label}\n{chunk['text']}")
-        indices.append(chunk["chunk_index"])
+        label = f"[Kaynak {i + 1}: {chunk['filename']} — {chunk['parent_id']}]"
+        parts.append(f"{label}\n{chunk['parent_text']}")
+        parent_ids.append(chunk["parent_id"])
+    return "\n\n---\n\n".join(parts), parent_ids
 
-    return "\n\n---\n\n".join(parts), indices
+
+def lookup_parent_context(parent_id: str) -> dict | None:
+    """
+    Verilen parent_id için parent metnini ve onun child'larını döndürür.
+    Uzman onay paneli, kaynak alıntılarını göstermek için kullanır.
+    """
+    parents = _load_parents()
+    if parent_id not in parents:
+        return None
+    parent_data = parents[parent_id]
+
+    try:
+        collection = _get_chroma_collection()
+        results = collection.get(
+            where={"parent_id": parent_id},
+            include=["documents", "metadatas"],
+        )
+        children = []
+        for doc, meta in zip(results["documents"], results["metadatas"]):
+            children.append({
+                "text": doc,
+                "child_index": meta.get("child_index", 0),
+            })
+        children.sort(key=lambda c: c["child_index"])
+    except Exception as exc:
+        logger.warning("Child'lar alınamadı (%s): %s", parent_id, exc)
+        children = []
+
+    return {
+        "parent_text": parent_data["text"],
+        "children": children,
+        "source": parent_data.get("source", ""),
+        "filename": parent_data.get("filename", ""),
+    }
 
 
 if __name__ == "__main__":
-    # Quick smoke test
-    test_query = "maaş hesaplama adımları"
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+    test_query = "SGK kesintisi hesaplama"
     print(f"Test sorgusu: '{test_query}'\n")
     try:
         hits = retrieve_context(test_query, top_k=3)
         for i, hit in enumerate(hits, start=1):
             print(f"--- Sonuç {i} ---")
-            print(f"Kaynak : {hit['source']} | Dosya: {hit['filename']} | Chunk: {hit['chunk_index']}")
+            print(f"Kaynak : {hit['source']} | Dosya: {hit['filename']} | Parent: {hit['parent_id']}")
             print(f"Mesafe : {hit['distance']}")
-            print(f"Metin  : {hit['text'][:200]}...")
+            print(f"Eşleşen child ({hit['child_index']}): {hit['child_text'][:120]}...")
+            print(f"Parent metin : {hit['parent_text'][:300]}...")
             print()
     except (ValueError, RuntimeError) as exc:
         print(f"Hata: {exc}")

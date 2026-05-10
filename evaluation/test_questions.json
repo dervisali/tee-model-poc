@@ -1,0 +1,141 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "created": "2026-05-10",
+    "description": "TEE-Model RAGAS değerlendirme test seti — maaş mutemetliği alanı.",
+    "total_questions": 20,
+    "coverage": {
+      "explicit": 12,
+      "tacit": 6,
+      "directive": 2
+    },
+    "notes": [
+      "Sorular ve referans cevaplar mock mevzuat (data/explicit_mevzuat.txt), ",
+      "anonim mülakat (data/tacit_interview_raw.txt) ve genelge ",
+      "(data/new_directive.txt) içeriklerine dayanır.",
+      "Cevaplar elle (alan uzmanı yerine geçecek titizlikte) yazılmıştır."
+    ]
+  },
+  "questions": [
+    {
+      "id": "q01",
+      "category": "explicit",
+      "question": "Devlet memurlarının aylık maaşları hangi katsayılar esas alınarak hesaplanır?",
+      "ground_truth": "Aylık katsayısı, taban aylık katsayısı ve yan ödeme katsayısı esas alınarak hesaplanır. Bu katsayılar her yıl Bakanlar Kurulu Kararnamesi ile belirlenir."
+    },
+    {
+      "id": "q02",
+      "category": "explicit",
+      "question": "Maaş hesaplamasında SGK İşçi Payı oranı nedir?",
+      "ground_truth": "SGK İşçi Payı (Emekli Keseği) brüt aylığın %14'ü oranındadır."
+    },
+    {
+      "id": "q03",
+      "category": "explicit",
+      "question": "Genel Sağlık Sigortası (GSS) primi yüzde kaçtır?",
+      "ground_truth": "GSS primi brüt aylığın %3'ü oranında uygulanır."
+    },
+    {
+      "id": "q04",
+      "category": "explicit",
+      "question": "İcra kesintisi net aylığın ne kadarını geçemez?",
+      "ground_truth": "İcra kesintisi net aylığın 1/4'ünü (dörtte birini) geçemez."
+    },
+    {
+      "id": "q05",
+      "category": "explicit",
+      "question": "Damga vergisi oranı nedir?",
+      "ground_truth": "Damga vergisi aylık ödeme bordrosunun binde 7,59'u oranında kesilir."
+    },
+    {
+      "id": "q06",
+      "category": "explicit",
+      "question": "Kümülatif gelir vergisi matrahı ne zaman sıfırlanır?",
+      "ground_truth": "Kümülatif gelir vergisi matrahı her yıl Ocak ayında sıfırlanır; mutemet bu sıfırlamayı bütçe yılının ilk maaş bordrosunda yapmak zorundadır."
+    },
+    {
+      "id": "q07",
+      "category": "explicit",
+      "question": "Maaş ödemeleri her ayın hangi gününde yapılır?",
+      "ground_truth": "Maaş ödemeleri her ayın 15'inde yapılır; tatile denk gelirse bir önceki iş gününde ödenir."
+    },
+    {
+      "id": "q08",
+      "category": "explicit",
+      "question": "Maaş bordroları muhasebe birimine en geç ödeme tarihinden ne kadar önce teslim edilmelidir?",
+      "ground_truth": "Bordroların ödeme tarihinden en az 5 iş günü önce muhasebe birimine teslim edilmesi zorunludur."
+    },
+    {
+      "id": "q09",
+      "category": "explicit",
+      "question": "Aile Durum Bildirimi formu (Form-ADB-01) ne zaman güncellenmek zorundadır?",
+      "ground_truth": "Medeni hal değişikliklerinde (evlilik, boşanma, doğum, ölüm) 30 gün içinde güncellenmesi zorunludur."
+    },
+    {
+      "id": "q10",
+      "category": "explicit",
+      "question": "Göreve başlama belgesi ne işe yarar ve neden zorunludur?",
+      "ground_truth": "Personelin kuruma ilk katıldığı günü resmi olarak belgeleyen ve amir tarafından onaylanmış formdur. Bu belge ibraz edilmeden personele maaş sisteme işlenemez."
+    },
+    {
+      "id": "q11",
+      "category": "explicit",
+      "question": "Eksik ödeme tespit edildiğinde mutemet nasıl bir prosedür uygular?",
+      "ground_truth": "Birim amirinin onayıyla bir sonraki ay bordrosuna fark ekleme talimatı düzenlenir; açıklamada 'XX/20XX dönemi eksik ödeme farkı' ibaresi yer almalıdır."
+    },
+    {
+      "id": "q12",
+      "category": "explicit",
+      "question": "Fazla ödeme halinde personelden iade nasıl alınır?",
+      "ground_truth": "Personele yazılı tebligat yapılır; 30 gün içinde gönüllü iade veya maaştan taksitli kesinti yapılabilir. Taksit tutarı aylık net maaşın 1/4'ünü aşamaz."
+    },
+    {
+      "id": "q13",
+      "category": "tacit",
+      "question": "Yeni mutemetlerin en sık yaptığı üç hata nedir?",
+      "ground_truth": "Birincisi, göreve başlama belgesi alınmadan maaş sisteme işlenmesi. İkincisi, Ocak ayında kümülatif gelir vergisi matrahının sıfırlanmaması. Üçüncüsü, icra kesintilerinde net aylığın 1/4 sınırının aşılması."
+    },
+    {
+      "id": "q14",
+      "category": "tacit",
+      "question": "Bordroyu imzalamadan önce mutlaka yapılması gereken üç kontrol nedir?",
+      "ground_truth": "Bir, kümülatif matrah bir önceki ay ile tutarlı mı; iki, icra kesintisi varsa 1/4 sınırı aşılıyor mu; üç, o ay içinde göreve başlama veya ayrılış olan personel eksiksiz işlenmiş mi."
+    },
+    {
+      "id": "q15",
+      "category": "tacit",
+      "question": "23 Mart'ta işe başlayan bir personelin Mart ayı maaşı nasıl hesaplanır?",
+      "ground_truth": "Brüt maaş 31'e bölünüp 9 ile çarpılır (23-31 Mart arası 9 gün). Kesintiler de bu kısmi tutar üzerinden orantılı uygulanır. SGK Form 4A bildirimi gerçek işe başlama tarihi olan 23 Mart olarak yapılmalıdır."
+    },
+    {
+      "id": "q16",
+      "category": "tacit",
+      "question": "Geriye dönük zam yayımlandığında bordrolar nasıl düzenlenir?",
+      "ground_truth": "Etkilenen her ay için ayrı fark bordrosu düzenlenir; her ay için ayrı kümülatif matrah hesabı, gelir vergisi farkı ve damga vergisi farkı ayrı ayrı hesaplanır."
+    },
+    {
+      "id": "q17",
+      "category": "tacit",
+      "question": "Bordro muhasebe birimine teslim için pratikteki gerçek son tarih hangisidir?",
+      "ground_truth": "Mevzuat 10. günü işaret etse de pratikte muhasebe biriminin iç akışı nedeniyle bordroların 9. gün saat 17.00'ye kadar gönderilmesi gerekir; aksi halde 10. günü göremeyebilir."
+    },
+    {
+      "id": "q18",
+      "category": "tacit",
+      "question": "İhraç gibi ani ayrılışlarda mutemet hangi adımları aynı gün içinde tamamlamalıdır?",
+      "ground_truth": "Ayrılış bildirimini sisteme anında işlemek, açık maaşı durdurmak ve o ay ödeme yapıldıysa fazla ödeme yazılarını hazırlamak."
+    },
+    {
+      "id": "q19",
+      "category": "directive",
+      "question": "2024 Temmuz genelgesine göre ek gösterge katsayısı ne kadar artırılmıştır ve hangi personel kapsam dışıdır?",
+      "ground_truth": "Ek gösterge katsayısı 0.05 oranında artırılmıştır. Geçici görevli, sözleşmeli ve vekil unvanlı personel bu güncellemenin kapsamı dışındadır."
+    },
+    {
+      "id": "q20",
+      "category": "directive",
+      "question": "Temmuz 2024 katsayı güncellemesi sistemde otomatik mi uygulanır?",
+      "ground_truth": "Hayır. Sistem otomatik güncelleme yapmaz; mutemet yeni katsayı değerini Temmuz bordrosunu hazırlarken bordro sistemine manuel olarak işlemekle yükümlüdür."
+    }
+  ]
+}

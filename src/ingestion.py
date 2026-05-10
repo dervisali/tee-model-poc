@@ -1,85 +1,111 @@
 """
-RAG ingestion pipeline for TEE-Model POC.
+TEE-Model ingestion boru hattı — Parent Document Retrieval (PDR) baskısı.
 
-Loads explicit regulation document and anonymized tacit interview transcript,
-chunks them, generates embeddings via gemini-embedding-001, and stores
-everything in a persistent ChromaDB collection named 'tee_knowledge_base'.
+İki seviyeli chunklama:
+  - Parent (üst) parçaları (300-800 karakter): chroma_db/parents.json içine
+    yazılır; LLM bağlamı olarak kullanılır.
+  - Child (alt) parçaları (50-200 karakter): multilingual-e5-large ile gömülür
+    ve ChromaDB 'tee_children' koleksiyonuna yazılır.
+
+Her child kaydı, parent_id geri-referansı taşır. Retrieval, child seviyesinde
+arama yapar; LLM'e ise parent metni gönderilir (daha geniş bağlam, daha iyi
+yanıt).
+
+Bu modül artık Google Gemini API'sine bağlı değildir; tamamen yerel
+sentence-transformers gömme modeli üzerinden çalışır.
 """
 
-import os
-import re
-import time
+from __future__ import annotations
+
+import json
 import logging
+import re
+import sys
 from pathlib import Path
 
 import chromadb
-from dotenv import load_dotenv
-from google import genai
 
-load_dotenv()
+from src.config import settings
+from src.embeddings import embed_passages, embedding_dimension
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+
 logger = logging.getLogger(__name__)
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-CHROMA_DIR = BASE_DIR / "chroma_db"
-COLLECTION_NAME = "tee_knowledge_base"
 
+# ---------------------------------------------------------------------------
+# Geriye uyumluluk takma adları (testler bunları doğrudan import ediyor)
+# ---------------------------------------------------------------------------
+BASE_DIR = settings.BASE_DIR
+CHROMA_DIR = settings.CHROMA_DIR
+PARENTS_JSON = CHROMA_DIR / "parents.json"
+
+CHILD_COLLECTION_NAME = settings.CHILD_COLLECTION_NAME
+COLLECTION_NAME = CHILD_COLLECTION_NAME
+
+# Eski tek-seviyeli chunker sabitleri — testler bunlara dayanıyor
 MIN_CHUNK_CHARS = 150
-MAX_CHUNK_CHARS = 800   # Lowered from 1200: dense regulatory paragraphs now split
-OVERLAP_CHARS = 150     # into single-topic chunks, improving embedding precision.
+MAX_CHUNK_CHARS = 800
+OVERLAP_CHARS = 150
+
+# PDR sabitleri — config'den okunur
+PARENT_MAX_CHARS = settings.CHUNK_SIZE_PARENT_MAX
+PARENT_MIN_CHARS = settings.CHUNK_SIZE_PARENT_MIN
+CHILD_MAX_CHARS = settings.CHUNK_SIZE_CHILD
+CHILD_MIN_CHARS = settings.CHUNK_SIZE_CHILD_MIN
+
 
 # ---------------------------------------------------------------------------
-# Client initialisation
+# ChromaDB yardımcıları
 # ---------------------------------------------------------------------------
 
-def _get_genai_client() -> genai.Client:
-    """Initialise and return the google-genai client using GOOGLE_API_KEY."""
-    api_key = os.getenv("GOOGLE_API_KEY")
-    if not api_key:
-        raise EnvironmentError(
-            "GOOGLE_API_KEY ortam değişkeni bulunamadı. "
-            "Lütfen .env dosyasını kontrol edin."
-        )
-    return genai.Client(api_key=api_key)
+def _get_child_collection() -> chromadb.Collection:
+    """Aktif child koleksiyonunu döndürür (yoksa oluşturur)."""
+    client = chromadb.PersistentClient(path=str(CHROMA_DIR))
+    return client.get_or_create_collection(
+        name=CHILD_COLLECTION_NAME,
+        metadata={
+            "hnsw:space": "cosine",
+            "embedding_model": settings.EMBEDDING_MODEL,
+            "embedding_dim": embedding_dimension(),
+        },
+    )
 
 
 def _get_chroma_collection() -> chromadb.Collection:
-    """Return (or create) the persistent ChromaDB collection."""
-    client = chromadb.PersistentClient(path=str(CHROMA_DIR))
-    collection = client.get_or_create_collection(
-        name=COLLECTION_NAME,
-        metadata={"hnsw:space": "cosine"},
-    )
-    return collection
+    """Eski adlandırma takma adı — child koleksiyonunu döner."""
+    return _get_child_collection()
 
 
 # ---------------------------------------------------------------------------
-# Chunking
+# Parent JSON deposu
+# ---------------------------------------------------------------------------
+
+def _load_parents() -> dict:
+    """parents.json dosyasını yükler; yoksa boş sözlük döner."""
+    if PARENTS_JSON.exists():
+        return json.loads(PARENTS_JSON.read_text(encoding="utf-8"))
+    return {}
+
+
+def _save_parents(parents: dict) -> None:
+    """parents sözlüğünü atomik olarak diske yazar."""
+    CHROMA_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = PARENTS_JSON.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(parents, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(PARENTS_JSON)
+
+
+# ---------------------------------------------------------------------------
+# Eski tek seviyeli chunker (geriye uyumluluk + testler için korunur)
 # ---------------------------------------------------------------------------
 
 def _split_into_chunks(text: str) -> list[str]:
     """
-    Split text into semantically coherent chunks.
-
-    Primary boundary: double newline (paragraph break).
-    - Chunks shorter than MIN_CHUNK_CHARS are merged with the next one.
-    - Chunks longer than MAX_CHUNK_CHARS are split at the nearest sentence
-      boundary (period/exclamation/question mark followed by whitespace).
-
-    Parameters
-    ----------
-    text : str
-        Full document text.
-
-    Returns
-    -------
-    list[str]
-        List of non-empty chunk strings.
+    Tek seviyeli chunker — yalnızca testler ve geriye uyumluluk içindir.
+    Yeni ingestion kodu PDR ikili stratejisini kullanır.
     """
     raw_paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
 
-    # Merge short paragraphs
     merged: list[str] = []
     buffer = ""
     for para in raw_paragraphs:
@@ -87,21 +113,17 @@ def _split_into_chunks(text: str) -> list[str]:
             buffer += " " + para
         else:
             buffer = para
-
         if len(buffer) >= MIN_CHUNK_CHARS:
             merged.append(buffer)
             buffer = ""
-
     if buffer:
         if merged:
             merged[-1] += " " + buffer
         else:
             merged.append(buffer)
 
-    # Split oversized chunks at sentence boundaries
+    sentence_end = re.compile(r"(?<=[.!?])\s+")
     final_chunks: list[str] = []
-    sentence_end = re.compile(r'(?<=[.!?])\s+')
-
     for chunk in merged:
         if len(chunk) <= MAX_CHUNK_CHARS:
             final_chunks.append(chunk)
@@ -118,7 +140,6 @@ def _split_into_chunks(text: str) -> list[str]:
             if current:
                 final_chunks.append(current)
 
-    # Post-process: merge any sub-minimum chunks into their predecessor
     result: list[str] = []
     for chunk in final_chunks:
         if chunk.strip():
@@ -127,7 +148,6 @@ def _split_into_chunks(text: str) -> list[str]:
             else:
                 result.append(chunk)
 
-    # Add overlap: prepend the tail of the previous chunk to each chunk
     if OVERLAP_CHARS > 0 and len(result) > 1:
         overlapped = [result[0]]
         for i in range(1, len(result)):
@@ -139,68 +159,118 @@ def _split_into_chunks(text: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# Embedding
+# PDR iki seviyeli chunker
 # ---------------------------------------------------------------------------
 
-def _embed_chunk(client: genai.Client, chunk_text: str) -> list[float]:
+def _split_into_parent_chunks(text: str) -> list[str]:
     """
-    Generate an embedding vector for a single text chunk.
-
-    Uses gemini-embedding-001 with task_type='retrieval_document'.
-    Raises RuntimeError on API failure.
-
-    Parameters
-    ----------
-    client : genai.Client
-        Authenticated google-genai client.
-    chunk_text : str
-        Text to embed.
-
-    Returns
-    -------
-    list[float]
-        Embedding vector.
+    Metni büyük parent parçalarına ayırır (~PARENT_MAX_CHARS hedef).
+    Parent'lar arasında örtüşme yoktur; her biri bağımsız bir LLM bağlam
+    penceresidir.
     """
-    try:
-        response = client.models.embed_content(
-            model="gemini-embedding-001",
-            contents=chunk_text,
-            config={"task_type": "retrieval_document"},
-        )
-        return response.embeddings[0].values
-    except Exception as exc:
-        raise RuntimeError(
-            f"Embedding API hatası: {exc}\nChunk (ilk 80 karakter): {chunk_text[:80]}"
-        ) from exc
+    sentence_end = re.compile(r"(?<=[.!?])\s+")
+    raw_paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+
+    merged: list[str] = []
+    buffer = ""
+    for para in raw_paragraphs:
+        candidate = (buffer + "\n\n" + para).strip() if buffer else para
+        if len(candidate) <= PARENT_MAX_CHARS:
+            buffer = candidate
+        else:
+            if buffer:
+                merged.append(buffer)
+            buffer = para
+    if buffer:
+        if merged and len(buffer) < PARENT_MIN_CHARS:
+            merged[-1] += "\n\n" + buffer
+        else:
+            merged.append(buffer)
+
+    final: list[str] = []
+    for chunk in merged:
+        if len(chunk) <= PARENT_MAX_CHARS:
+            final.append(chunk)
+        else:
+            sentences = sentence_end.split(chunk)
+            current = ""
+            for s in sentences:
+                candidate = (current + " " + s).strip() if current else s
+                if len(candidate) <= PARENT_MAX_CHARS:
+                    current = candidate
+                else:
+                    if current:
+                        final.append(current)
+                    current = s
+            if current:
+                final.append(current)
+
+    return [c for c in final if c.strip()]
+
+
+def _split_into_child_chunks(parent_text: str) -> list[str]:
+    """
+    Parent parçasını gömme için küçük child parçalarına ayırır.
+    Her child, parent_id geri-referansını metadata'da taşır.
+    """
+    sentence_end = re.compile(r"(?<=[.!?])\s+")
+    sentences = sentence_end.split(parent_text)
+
+    children: list[str] = []
+    current = ""
+    for s in sentences:
+        candidate = (current + " " + s).strip() if current else s
+        if len(candidate) <= CHILD_MAX_CHARS:
+            current = candidate
+        else:
+            if current:
+                children.append(current)
+            if len(s) > CHILD_MAX_CHARS:
+                words = s.split()
+                sub = ""
+                for w in words:
+                    sub_cand = (sub + " " + w).strip() if sub else w
+                    if len(sub_cand) <= CHILD_MAX_CHARS:
+                        sub = sub_cand
+                    else:
+                        if sub:
+                            children.append(sub)
+                        sub = w
+                current = sub
+            else:
+                current = s
+    if current:
+        children.append(current)
+
+    result: list[str] = []
+    for child in children:
+        if result and len(child) < CHILD_MIN_CHARS:
+            result[-1] += " " + child
+        else:
+            result.append(child)
+
+    return [c for c in result if c.strip()]
 
 
 # ---------------------------------------------------------------------------
-# Main ingestion
+# Kaynak dosya yükleme
 # ---------------------------------------------------------------------------
 
 def _load_source_files() -> list[dict]:
     """
-    Load explicit regulation document and anonymized tacit transcript.
-
-    If the anonymized transcript does not yet exist, runs the anonymizer first.
-
-    Returns
-    -------
-    list[dict]
-        Each entry has keys "source", "filename", "text".
+    Mevzuat ve anonimleştirilmiş tacit transkriptini yükler.
+    Tacit dosyası yoksa, ham transkripten anonimleştirme ile üretir.
     """
-    import sys as _sys
-    if str(BASE_DIR) not in _sys.path:
-        _sys.path.insert(0, str(BASE_DIR))
-    from src.anonymizer import anonymize_text  # local import to avoid circular deps
+    if str(BASE_DIR) not in sys.path:
+        sys.path.insert(0, str(BASE_DIR))
+    from src.anonymizer import anonymize_text  # noqa: WPS433
 
-    explicit_path = BASE_DIR / "data" / "explicit_mevzuat.txt"
-    raw_tacit_path = BASE_DIR / "data" / "tacit_interview_raw.txt"
-    clean_tacit_path = BASE_DIR / "processed" / "tacit_interview_clean.txt"
+    explicit_path = settings.DATA_DIR / "explicit_mevzuat.txt"
+    raw_tacit_path = settings.DATA_DIR / "tacit_interview_raw.txt"
+    clean_tacit_path = settings.PROCESSED_DIR / "tacit_interview_clean.txt"
 
-    sources = []
+    sources: list[dict] = []
 
-    # --- Explicit document ---
     if not explicit_path.exists():
         raise FileNotFoundError(f"Mevzuat dosyası bulunamadı: {explicit_path}")
     sources.append({
@@ -208,26 +278,17 @@ def _load_source_files() -> list[dict]:
         "filename": explicit_path.name,
         "text": explicit_path.read_text(encoding="utf-8"),
     })
-    logger.info("Mevzuat dosyası yüklendi: %s", explicit_path.name)
 
-    # --- Tacit transcript (anonymize on demand) ---
     if not clean_tacit_path.exists():
-        logger.info("Anonimleştirilmiş transkript bulunamadı, oluşturuluyor...")
         if not raw_tacit_path.exists():
             raise FileNotFoundError(f"Ham transkript bulunamadı: {raw_tacit_path}")
         raw_text = raw_tacit_path.read_text(encoding="utf-8")
         result = anonymize_text(raw_text)
         clean_tacit_path.parent.mkdir(parents=True, exist_ok=True)
         clean_tacit_path.write_text(result["anonymized_text"], encoding="utf-8")
-        logger.info(
-            "Transkript anonimleştirildi ve kaydedildi: %d kayıt maskelendi.",
-            len(result["mask_log"]),
-        )
-    else:
-        logger.info("Mevcut anonimleştirilmiş transkript kullanılıyor: %s", clean_tacit_path.name)
+        logger.info("Transkript anonimleştirildi: %d kayıt maskelendi.", len(result["mask_log"]))
 
     tacit_text = clean_tacit_path.read_text(encoding="utf-8")
-    # Strip document header: everything up to and including the first "---" separator
     if "\n---\n" in tacit_text:
         tacit_text = tacit_text.split("\n---\n", 1)[1].strip()
     sources.append({
@@ -239,282 +300,366 @@ def _load_source_files() -> list[dict]:
     return sources
 
 
-def run_ingestion() -> dict:
+# ---------------------------------------------------------------------------
+# Ana ingestion
+# ---------------------------------------------------------------------------
+
+def run_ingestion(chunking_strategy: str | None = None) -> dict:
     """
-    Full RAG ingestion pipeline.
+    Tam PDR ingestion boru hattı.
 
-    Steps:
-      1. Load source files (explicit + tacit).
-      2. Chunk each document.
-      3. Generate embeddings (with 1-second sleep between calls for rate limit).
-      4. Upsert chunks + metadata + vectors into ChromaDB.
-      5. Return a summary dict.
+    Her kaynak için:
+      1. Parent parçalarına böl (parents.json'a yaz).
+      2. Her parent'ı child'lara böl.
+      3. Tüm child'ları toplu olarak (batch) gömele ve ChromaDB'ye yaz.
 
-    Returns
-    -------
-    dict with keys:
-        - "total_chunks": int
-        - "explicit_chunks": int
-        - "tacit_chunks": int
-        - "collection_size": int
+    Yerel e5-large modeli kullanıldığı için gömme adımı toplu yürütülür;
+    eski Gemini kodundaki sleep(1) rate-limit gecikmesi tamamen kaldırılmıştır.
+
+    chunking_strategy: "paragraph" | "semantic" | "fixed".
+      None ise settings.CHUNKING_STRATEGY (varsayılan "paragraph") kullanılır.
     """
-    client = _get_genai_client()
-    collection = _get_chroma_collection()
+    from src.chunkers import get_parent_chunker
+    strategy = chunking_strategy or settings.CHUNKING_STRATEGY
+    parent_chunker = get_parent_chunker(strategy)
+    logger.info("Ingestion chunking stratejisi: %s", strategy)
 
+    child_col = _get_child_collection()
     sources = _load_source_files()
 
-    all_ids: list[str] = []
-    all_embeddings: list[list[float]] = []
-    all_documents: list[str] = []
-    all_metadatas: list[dict] = []
-
-    explicit_count = 0
-    tacit_count = 0
-    global_idx = 0
+    parents: dict = {}
+    pending_texts: list[str] = []         # gömülecek metinler (zenginleştirilmiş olabilir)
+    pending_ids: list[str] = []
+    pending_metas: list[dict] = []
+    explicit_children = 0
+    tacit_children = 0
 
     for source_info in sources:
-        chunks = _split_into_chunks(source_info["text"])
+        stem = Path(source_info["filename"]).stem
+        full_doc = source_info["text"]
+        parent_chunks = parent_chunker(full_doc)
         logger.info(
-            "'%s' kaynağı için %d chunk oluşturuldu.",
-            source_info["source"],
-            len(chunks),
+            "%s için %d parent chunk üretildi (strateji=%s).",
+            source_info["source"], len(parent_chunks), strategy,
         )
 
-        for local_idx, chunk_text in enumerate(chunks):
-            chunk_id = f"{source_info['source']}_{local_idx}"
-            metadata = {
+        # Bu kaynağa ait child'ları topla; enrichment kaynak başına yapılır
+        # çünkü full document chunk'ın bağlamı için referanstır.
+        source_child_originals: list[str] = []
+        source_child_ids: list[str] = []
+        source_child_metas: list[dict] = []
+
+        for p_idx, parent_text in enumerate(parent_chunks):
+            parent_id = f"{stem}_p{p_idx}"
+            parents[parent_id] = {
+                "text": parent_text,
                 "source": source_info["source"],
                 "filename": source_info["filename"],
-                "chunk_index": local_idx,
-                "char_count": len(chunk_text),
+                "parent_index": p_idx,
+                "char_count": len(parent_text),
             }
 
+            for c_idx, child_text in enumerate(_split_into_child_chunks(parent_text)):
+                child_id = f"{stem}_p{p_idx}_c{c_idx}"
+                source_child_originals.append(child_text)
+                source_child_ids.append(child_id)
+                source_child_metas.append({
+                    "source": source_info["source"],
+                    "filename": source_info["filename"],
+                    "child_index": c_idx,
+                    "parent_id": parent_id,
+                    "char_count": len(child_text),
+                    "chunking_strategy": strategy,
+                    "original_text": child_text,  # UI gösterimi için
+                    "enriched": False,
+                })
+                if source_info["source"] == "explicit":
+                    explicit_children += 1
+                else:
+                    tacit_children += 1
+
+        # Phase 1.2.A — Anthropic Contextual Retrieval
+        if settings.ENABLE_CONTEXTUAL_ENRICHMENT and source_child_originals:
+            from src.contextual_enrichment import enrich_chunks
             logger.info(
-                "Embedding oluşturuluyor: kaynak=%s chunk=%d/%d",
-                source_info["source"],
-                local_idx + 1,
-                len(chunks),
+                "Contextual enrichment başlıyor: %s, %d chunk",
+                stem, len(source_child_originals),
             )
+            enriched_texts, stats = enrich_chunks(
+                full_doc,
+                source_child_originals,
+                document_id=stem,
+            )
+            logger.info(
+                "Enrichment bitti: %s — hits=%d miss=%d (%.1fs)",
+                stem, stats["hits"], stats["misses"], stats["total_seconds"],
+            )
+            for meta in source_child_metas:
+                meta["enriched"] = True
+            pending_texts.extend(enriched_texts)
+        else:
+            pending_texts.extend(source_child_originals)
 
-            try:
-                vector = _embed_chunk(client, chunk_text)
-            except RuntimeError as exc:
-                logger.error("Chunk atlandı (embedding hatası): %s", exc)
-                continue
+        pending_ids.extend(source_child_ids)
+        pending_metas.extend(source_child_metas)
 
-            all_ids.append(chunk_id)
-            all_embeddings.append(vector)
-            all_documents.append(chunk_text)
-            all_metadatas.append(metadata)
+    _save_parents(parents)
+    logger.info("parents.json kaydedildi: %d parent.", len(parents))
 
-            if source_info["source"] == "explicit":
-                explicit_count += 1
-            else:
-                tacit_count += 1
-
-            global_idx += 1
-
-            # Rate limit: 5 req/min on free tier
-            time.sleep(1)
-
-    if all_ids:
-        collection.upsert(
-            ids=all_ids,
-            embeddings=all_embeddings,
-            documents=all_documents,
-            metadatas=all_metadatas,
+    if pending_ids:
+        logger.info("Toplu gömme başlıyor: %d child.", len(pending_ids))
+        embeddings = embed_passages(pending_texts)
+        child_col.upsert(
+            ids=pending_ids,
+            embeddings=embeddings,
+            documents=pending_texts,
+            metadatas=pending_metas,
         )
-        logger.info("ChromaDB'ye %d chunk yazıldı.", len(all_ids))
-    else:
-        logger.warning("Yazılacak chunk bulunamadı.")
+        logger.info("ChromaDB'ye yazıldı: %d child.", len(pending_ids))
 
-    collection_size = collection.count()
+    # Hibrit aramayı destekleyen BM25 indeksi: dense yazımı bittikten sonra
+    # her zaman yeniden inşa edilir (tutarlılık için).
+    from src.hybrid_search import rebuild_bm25_index_from_collection
+    rebuild_bm25_index_from_collection()
+
     summary = {
-        "total_chunks": explicit_count + tacit_count,
-        "explicit_chunks": explicit_count,
-        "tacit_chunks": tacit_count,
-        "collection_size": collection_size,
+        "total_chunks": explicit_children + tacit_children,
+        "explicit_chunks": explicit_children,
+        "tacit_chunks": tacit_children,
+        "collection_size": child_col.count(),
     }
-
     logger.info(
-        "Yükleme özeti — Toplam: %d | Mevzuat: %d | Tacit: %d | DB boyutu: %d",
-        summary["total_chunks"],
-        summary["explicit_chunks"],
-        summary["tacit_chunks"],
-        summary["collection_size"],
+        "Ingestion özeti: toplam=%d explicit=%d tacit=%d db=%d",
+        summary["total_chunks"], summary["explicit_chunks"],
+        summary["tacit_chunks"], summary["collection_size"],
     )
-
     return summary
 
 
 def clear_and_reingest() -> dict:
-    """
-    Drop the existing ChromaDB collection and re-run the full ingestion pipeline.
-
-    Returns
-    -------
-    dict
-        Same summary dict as run_ingestion().
-    """
+    """tee_children koleksiyonunu, parents.json'u ve BM25 indeksini silip baştan ingest eder."""
     chroma_client = chromadb.PersistentClient(path=str(CHROMA_DIR))
     try:
-        chroma_client.delete_collection(COLLECTION_NAME)
-        logger.info("Mevcut koleksiyon silindi: %s", COLLECTION_NAME)
+        chroma_client.delete_collection(CHILD_COLLECTION_NAME)
     except Exception as exc:
-        logger.warning("Koleksiyon silinemedi (belki yoktu): %s", exc)
+        logger.warning("Koleksiyon silinemedi: %s", exc)
+
+    if PARENTS_JSON.exists():
+        PARENTS_JSON.unlink()
+        logger.info("parents.json silindi.")
+
+    from src.hybrid_search import BM25_INDEX_PATH
+    if BM25_INDEX_PATH.exists():
+        BM25_INDEX_PATH.unlink()
+        logger.info("BM25 indeksi silindi.")
 
     return run_ingestion()
 
 
 def get_ingestion_status() -> dict:
-    """
-    Return the current ChromaDB collection metadata without re-ingesting.
-
-    Returns
-    -------
-    dict with keys "collection_size", "explicit_chunks", "tacit_chunks".
-    Returns zeros if collection does not exist or is empty.
-    """
+    """Mevcut koleksiyonun boyutunu ve kaynak dağılımını döner."""
     try:
-        collection = _get_chroma_collection()
-        total = collection.count()
+        col = _get_child_collection()
+        total = col.count()
         if total == 0:
             return {"collection_size": 0, "explicit_chunks": 0, "tacit_chunks": 0}
-
-        explicit_results = collection.get(where={"source": "explicit"})
-        tacit_results = collection.get(where={"source": "tacit"})
-
+        explicit = col.get(where={"source": "explicit"})
+        tacit = col.get(where={"source": "tacit"})
         return {
             "collection_size": total,
-            "explicit_chunks": len(explicit_results["ids"]),
-            "tacit_chunks": len(tacit_results["ids"]),
+            "explicit_chunks": len(explicit["ids"]),
+            "tacit_chunks": len(tacit["ids"]),
         }
     except Exception as exc:
         logger.error("Durum sorgulanamadı: %s", exc)
         return {"collection_size": 0, "explicit_chunks": 0, "tacit_chunks": 0}
 
 
-def insert_new_document(filepath: str, source_type: str) -> dict:
+def insert_new_document(
+    filepath: str,
+    source_type: str,
+    chunking_strategy: str | None = None,
+) -> dict:
     """
-    Insert a single new document into the EXISTING ChromaDB collection.
+    Mevcut koleksiyona tek bir yeni belge ekler. Var olan veriyi silmez.
 
-    Does NOT wipe the collection. Suitable for incremental knowledge-base updates.
+    Phase 1.2.A: ENABLE_CONTEXTUAL_ENRICHMENT açıksa, yeni belgenin tüm
+    chunk'ları LLM ile zenginleştirilir; orijinal metinler metadata'ya yazılır.
 
-    Steps:
-      1. Read the file from disk.
-      2. Run it through the anonymizer.
-      3. Chunk it with _split_into_chunks().
-      4. Embed each chunk via the Gemini API.
-      5. Upsert into the existing tee_knowledge_base collection.
-      6. Return a summary dict.
+    Phase 1.2.B: chunking_strategy parametresi ile bu belgeye özel strateji
+    seçilebilir ("paragraph" | "semantic" | "fixed"); None ise
+    settings.CHUNKING_STRATEGY kullanılır.
 
-    Parameters
-    ----------
-    filepath : str
-        Absolute or relative path to the document file.
-    source_type : str
-        Label to store in the "source" metadata field (e.g. "explicit", "tacit").
-
-    Returns
-    -------
-    dict with keys:
-        - "new_chunks": int      — number of chunks successfully embedded and added.
-        - "filename": str        — the file's base name.
-        - "collection_size": int — total chunks in the collection after insertion.
+    Phase 1.2.C: ENABLE_DEDUPLICATION true ise, yeni chunk'lar koleksiyondaki
+    ve birbirinin aynı sayılan vektörlere karşı kontrol edilir.
     """
-    import sys as _sys
-    if str(BASE_DIR) not in _sys.path:
-        _sys.path.insert(0, str(BASE_DIR))
-    from src.anonymizer import anonymize_text
+    from src.chunkers import get_parent_chunker
+    strategy = chunking_strategy or settings.CHUNKING_STRATEGY
+    parent_chunker = get_parent_chunker(strategy)
+
+    if str(BASE_DIR) not in sys.path:
+        sys.path.insert(0, str(BASE_DIR))
+    from src.anonymizer import anonymize_text  # noqa: WPS433
 
     doc_path = Path(filepath)
     if not doc_path.exists():
         raise FileNotFoundError(f"Belge bulunamadı: {doc_path}")
 
     raw_text = doc_path.read_text(encoding="utf-8")
-    logger.info("Yeni belge okundu: %s (%d karakter)", doc_path.name, len(raw_text))
-
-    # Anonymize
-    anon_result = anonymize_text(raw_text)
-    clean_text = anon_result["anonymized_text"]
+    anon = anonymize_text(raw_text)
+    clean_text = anon["anonymized_text"]
     logger.info(
-        "Anonimleştirme tamamlandı: %d kayıt maskelendi.", len(anon_result["mask_log"])
+        "Yeni belge alındı: %s — %d karakter, %d PII maskelendi, strateji=%s.",
+        doc_path.name, len(raw_text), len(anon["mask_log"]), strategy,
     )
 
-    # Chunk
-    chunks = _split_into_chunks(clean_text)
-    logger.info("%d chunk oluşturuldu: %s", len(chunks), doc_path.name)
+    stem = doc_path.stem
+    parent_chunks = parent_chunker(clean_text)
 
-    # Embed and collect
-    client = _get_genai_client()
-    collection = _get_chroma_collection()
+    child_col = _get_child_collection()
+    parents = _load_parents()
 
-    all_ids: list[str] = []
-    all_embeddings: list[list[float]] = []
-    all_documents: list[str] = []
-    all_metadatas: list[dict] = []
+    source_child_originals: list[str] = []
+    pending_ids: list[str] = []
+    pending_metas: list[dict] = []
 
-    for local_idx, chunk_text in enumerate(chunks):
-        # Use stem+index for unique IDs that don't collide with existing chunks
-        chunk_id = f"{source_type}_{doc_path.stem}_{local_idx}"
-        metadata = {
+    for p_idx, parent_text in enumerate(parent_chunks):
+        parent_id = f"{source_type}_{stem}_p{p_idx}"
+        parents[parent_id] = {
+            "text": parent_text,
             "source": source_type,
             "filename": doc_path.name,
-            "chunk_index": local_idx,
-            "char_count": len(chunk_text),
+            "parent_index": p_idx,
+            "char_count": len(parent_text),
         }
+        for c_idx, child_text in enumerate(_split_into_child_chunks(parent_text)):
+            child_id = f"{source_type}_{stem}_p{p_idx}_c{c_idx}"
+            source_child_originals.append(child_text)
+            pending_ids.append(child_id)
+            pending_metas.append({
+                "source": source_type,
+                "filename": doc_path.name,
+                "child_index": c_idx,
+                "parent_id": parent_id,
+                "char_count": len(child_text),
+                "chunking_strategy": strategy,
+                "original_text": child_text,
+                "enriched": False,
+            })
 
+    if settings.ENABLE_CONTEXTUAL_ENRICHMENT and source_child_originals:
+        from src.contextual_enrichment import enrich_chunks
+        enriched_texts, stats = enrich_chunks(
+            clean_text,
+            source_child_originals,
+            document_id=stem,
+        )
+        for meta in pending_metas:
+            meta["enriched"] = True
         logger.info(
-            "Embedding oluşturuluyor: %s chunk %d/%d",
-            doc_path.name,
-            local_idx + 1,
-            len(chunks),
+            "Yeni belge enrichment: hits=%d miss=%d (%.1fs)",
+            stats["hits"], stats["misses"], stats["total_seconds"],
         )
-
-        try:
-            vector = _embed_chunk(client, chunk_text)
-        except RuntimeError as exc:
-            logger.error("Chunk atlandı (embedding hatası): %s", exc)
-            continue
-
-        all_ids.append(chunk_id)
-        all_embeddings.append(vector)
-        all_documents.append(chunk_text)
-        all_metadatas.append(metadata)
-
-        time.sleep(1)  # Rate limit: 5 req/min on free tier
-
-    if all_ids:
-        collection.upsert(
-            ids=all_ids,
-            embeddings=all_embeddings,
-            documents=all_documents,
-            metadatas=all_metadatas,
-        )
-        logger.info("ChromaDB'ye %d yeni chunk eklendi.", len(all_ids))
+        pending_texts = enriched_texts
     else:
-        logger.warning("Hiç chunk eklenemedi.")
+        pending_texts = source_child_originals
 
-    collection_size = collection.count()
+    embeddings: list[list[float]] = []
+    if pending_ids:
+        embeddings = embed_passages(pending_texts)
+
+    # Phase 1.2.C — duplikat tespiti
+    dedup_summary = {"dropped_existing": 0, "dropped_inside_doc": 0, "dropped_ids": []}
+    if settings.ENABLE_DEDUPLICATION and embeddings:
+        kept_ids: list[str] = []
+        kept_texts: list[str] = []
+        kept_metas: list[dict] = []
+        kept_embeddings: list[list[float]] = []
+
+        existing_count = child_col.count()
+        # 1) Mevcut koleksiyona karşı kontrol
+        existing_threshold = 1.0 - settings.DEDUP_SIMILARITY_THRESHOLD  # cosine distance eşiği
+        existing_hits: list[float] = []
+        if existing_count > 0:
+            try:
+                results = child_col.query(
+                    query_embeddings=embeddings,
+                    n_results=1,
+                    include=["distances"],
+                )
+                # results["distances"] = [[d_for_q1], [d_for_q2], ...]
+                for row in results.get("distances", []):
+                    existing_hits.append(float(row[0]) if row else 1.0)
+            except Exception as exc:
+                logger.warning("Dedup mevcut sorgusu başarısız: %s — atlanıyor.", exc)
+                existing_hits = [1.0] * len(embeddings)
+        else:
+            existing_hits = [1.0] * len(embeddings)
+
+        # 2) Belge içi karşılıklı kontrol — vektörler normalize, kosinüs = iç çarpım
+        from src.embeddings import cosine_similarity
+        kept_indices: list[int] = []
+        for i, (cid, txt, meta, vec) in enumerate(zip(pending_ids, pending_texts, pending_metas, embeddings)):
+            if existing_hits[i] < existing_threshold:
+                dedup_summary["dropped_existing"] += 1
+                dedup_summary["dropped_ids"].append({"id": cid, "reason": "existing", "distance": round(existing_hits[i], 4)})
+                logger.info("Duplikat (mevcut): %s atlanıyor (mesafe=%.4f).", cid, existing_hits[i])
+                continue
+
+            # belge içi
+            duplicate_within = False
+            for k_idx in kept_indices:
+                sim = cosine_similarity(vec, embeddings[k_idx])
+                if sim >= settings.DEDUP_SIMILARITY_THRESHOLD:
+                    duplicate_within = True
+                    dedup_summary["dropped_inside_doc"] += 1
+                    dedup_summary["dropped_ids"].append({"id": cid, "reason": "inside_doc", "similarity": round(sim, 4)})
+                    logger.info("Duplikat (belge içi): %s atlanıyor (benz=%.4f).", cid, sim)
+                    break
+            if duplicate_within:
+                continue
+
+            kept_indices.append(i)
+            kept_ids.append(cid)
+            kept_texts.append(txt)
+            kept_metas.append(meta)
+            kept_embeddings.append(vec)
+
+        pending_ids, pending_texts, pending_metas, embeddings = (
+            kept_ids, kept_texts, kept_metas, kept_embeddings,
+        )
+
+    _save_parents(parents)
+
+    if pending_ids:
+        child_col.upsert(
+            ids=pending_ids,
+            embeddings=embeddings,
+            documents=pending_texts,
+            metadatas=pending_metas,
+        )
+
+    # BM25 indeksi her insert sonrası yeniden inşa edilir.
+    from src.hybrid_search import rebuild_bm25_index_from_collection
+    rebuild_bm25_index_from_collection()
 
     summary = {
-        "new_chunks": len(all_ids),
+        "new_chunks": len(pending_ids),
+        "dropped_existing": dedup_summary["dropped_existing"],
+        "dropped_inside_doc": dedup_summary["dropped_inside_doc"],
         "filename": doc_path.name,
-        "collection_size": collection_size,
+        "collection_size": child_col.count(),
     }
-
     logger.info(
-        "Ekleme özeti — Yeni chunk: %d | Toplam koleksiyon boyutu: %d",
-        summary["new_chunks"],
-        summary["collection_size"],
+        "Ekleme özeti: new=%d skipped(existing)=%d skipped(self)=%d total=%d",
+        summary["new_chunks"], summary["dropped_existing"],
+        summary["dropped_inside_doc"], summary["collection_size"],
     )
-
     return summary
 
 
 if __name__ == "__main__":
-    import sys, os
-    sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
     summary = run_ingestion()
     print("\nYükleme Özeti:")
     for k, v in summary.items():

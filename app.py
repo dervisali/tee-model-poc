@@ -12,17 +12,36 @@ import logging
 
 import streamlit as st
 import pandas as pd
-from dotenv import load_dotenv
 
 # Ensure src/ is importable when run from project root
 sys.path.insert(0, os.path.dirname(__file__))
 
-load_dotenv()
+from src.config import settings  # noqa: E402
+from src.logging_config import configure_logging  # noqa: E402
+from src.job_queue import submit_job, wait_for_job, queue_size  # noqa: E402
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+configure_logging()
 logger = logging.getLogger(__name__)
 
-MOCK_MODE = os.getenv("MOCK_MODE", "false").lower() == "true"
+MOCK_MODE = settings.MOCK_MODE
+
+
+def _run_via_queue(label: str, fn, *args, **kwargs):
+    """Üretim çağrılarını paylaşılan kuyruktan geçirir, Streamlit spinner ile."""
+    job_id = submit_job(fn, *args, **kwargs)
+    queued_count = queue_size()
+    waiting_label = (
+        f"{label} ({job_id}) — kuyrukta {queued_count} iş..."
+        if queued_count > 1
+        else f"{label} ({job_id})..."
+    )
+    with st.spinner(waiting_label):
+        status = wait_for_job(job_id, timeout=600)
+    if status["status"] == "done":
+        return status["result"], None
+    if status["status"] == "error":
+        return None, status["error"]
+    return None, f"İş zaman aşımına uğradı (status={status['status']})"
 
 # ---------------------------------------------------------------------------
 # Page config
@@ -82,10 +101,54 @@ st.markdown(
     .badge-tacit   { background: #27ae60; color: white; }
     .chunk-meta    { color: #888; font-size: 0.78rem; margin-bottom: 0.4rem; }
     .chunk-text    { color: #333; }
+    .confidence-banner {
+        padding: 0.6rem 1rem;
+        border-radius: 8px;
+        margin: 0.4rem 0 1rem 0;
+        font-size: 0.92rem;
+        line-height: 1.5;
+    }
+    .confidence-banner.green  { background: #d4edda; border-left: 5px solid #27ae60; color: #155724; }
+    .confidence-banner.yellow { background: #fff3cd; border-left: 5px solid #f1c40f; color: #856404; }
+    .confidence-banner.red    { background: #f8d7da; border-left: 5px solid #e74c3c; color: #721c24; }
+    .confidence-meta { font-size: 0.82rem; opacity: 0.85; }
     </style>
     """,
     unsafe_allow_html=True,
 )
+
+
+def _render_confidence_banner(content: dict) -> None:
+    """Üretilen içerikteki _confidence rozetini Tab 4'te render eder."""
+    score = content.get("_confidence") if isinstance(content, dict) else None
+    if not score or score.get("hata"):
+        return
+    color = score.get("rozet_renk", "yellow")
+    label = score.get("rozet_metin", "Güven Skoru")
+    skor = score.get("guven_skoru", 0.0)
+    sup = score.get("desteklenen_iddialar", 0)
+    nosup = score.get("desteklenmeyen_iddialar", 0)
+    advice_map = {
+        "hizli_inceleme": "Hızlı İnceleme",
+        "detayli_inceleme": "Detaylı İnceleme",
+        "reddet": "Reddet",
+    }
+    advice = advice_map.get(score.get("uzman_onay_tavsiyesi"), "İncele")
+    unsupported = score.get("desteklenmeyen_liste") or []
+    extra = ""
+    if unsupported:
+        items = "".join(f"<li>{u}</li>" for u in unsupported[:5])
+        extra = f"<details><summary>Desteklenmeyen iddialar ({len(unsupported)})</summary><ul>{items}</ul></details>"
+    st.markdown(
+        f"""<div class="confidence-banner {color}">
+        <b>🛡️ {label}</b> &nbsp;·&nbsp;
+        Güven skoru: <b>{skor:.2f}</b> &nbsp;·&nbsp;
+        Desteklenen: <b>{sup}</b> · Desteklenmeyen: <b>{nosup}</b>
+        <span class="confidence-meta"> &nbsp;|&nbsp; Uzman tavsiyesi: <b>{advice}</b></span>
+        {extra}
+        </div>""",
+        unsafe_allow_html=True,
+    )
 
 # ---------------------------------------------------------------------------
 # Session state initialisation
@@ -123,7 +186,7 @@ for key, val in _DEFAULTS.items():
 st.title("🏛️ TEE-Model — Tacit-Explicit Entegre Eğitim Sistemi")
 st.caption(
     "Maaş Mutemedi Onboarding POC | "
-    + ("⚠️ MOCK MODU AKTİF — API çağrısı yapılmıyor" if MOCK_MODE else "🟢 Canlı API Modu")
+    + ("⚠️ MOCK MODU AKTİF — yerel servis çağrısı yapılmıyor" if MOCK_MODE else f"🟢 Yerel Ollama: {settings.GENERATION_MODEL}")
 )
 
 tabs = st.tabs(
@@ -256,14 +319,12 @@ with tabs[1]:
     if st.button("Süreç Haritası Oluştur", key="gen_process_map"):
         from src.generators import generate_process_map
 
-        with st.spinner("Süreç haritası oluşturuluyor..."):
-            try:
-                result = generate_process_map()
-                st.session_state["process_map"] = result
-                # Reset approvals for this content
-                st.session_state["approvals"]["process_map"] = {}
-            except Exception as exc:
-                st.error(f"Hata: {exc}")
+        result, error = _run_via_queue("Süreç haritası oluşturuluyor", generate_process_map)
+        if error:
+            st.error(f"Hata: {error}")
+        else:
+            st.session_state["process_map"] = result
+            st.session_state["approvals"]["process_map"] = {}
 
     pm = st.session_state.get("process_map")
     if pm:
@@ -287,13 +348,12 @@ with tabs[1]:
     if st.button("Hata Kartlarını Oluştur", key="gen_error_cards"):
         from src.generators import generate_error_cards
 
-        with st.spinner("Hata kartları oluşturuluyor..."):
-            try:
-                result = generate_error_cards()
-                st.session_state["error_cards"] = result
-                st.session_state["approvals"]["error_cards"] = {}
-            except Exception as exc:
-                st.error(f"Hata: {exc}")
+        result, error = _run_via_queue("Hata kartları oluşturuluyor", generate_error_cards)
+        if error:
+            st.error(f"Hata: {error}")
+        else:
+            st.session_state["error_cards"] = result
+            st.session_state["approvals"]["error_cards"] = {}
 
     ec = st.session_state.get("error_cards")
     if ec:
@@ -306,8 +366,8 @@ with tabs[1]:
                     st.markdown(
                         f"""<div class="hata-karti">
                         <b>Hata:</b> {card.get('hata', '')}<br>
-                        <b>Kök Neden:</b> {card.get('kök_neden', '')}<br>
-                        <b>Tespit Yöntemi:</b> {card.get('tespit_yöntemi', '')}<br>
+                        <b>Kök Neden:</b> {card.get('kok_neden', '')}<br>
+                        <b>Tespit Yöntemi:</b> {card.get('tespit_yontemi', '')}<br>
                         <b>Doğru Uygulama:</b> {card.get('dogru_uygulama', '')}<br>
                         <small>📌 Kaynak Chunk İndeksleri: {card.get('kaynak_chunk_indeksleri', [])}</small>
                         </div>""",
@@ -321,13 +381,12 @@ with tabs[1]:
     if st.button("Terim Sözlüğü Oluştur", key="gen_glossary"):
         from src.generators import generate_glossary
 
-        with st.spinner("Terim sözlüğü oluşturuluyor..."):
-            try:
-                result = generate_glossary()
-                st.session_state["glossary"] = result
-                st.session_state["approvals"]["glossary"] = {}
-            except Exception as exc:
-                st.error(f"Hata: {exc}")
+        result, error = _run_via_queue("Terim sözlüğü oluşturuluyor", generate_glossary)
+        if error:
+            st.error(f"Hata: {error}")
+        else:
+            st.session_state["glossary"] = result
+            st.session_state["approvals"]["glossary"] = {}
 
     gl = st.session_state.get("glossary")
     if gl:
@@ -355,15 +414,14 @@ with tabs[2]:
     if st.button("🎲 Yeni Senaryo Oluştur", key="gen_simulation"):
         from src.generators import generate_simulation_scenario
 
-        with st.spinner("Senaryo oluşturuluyor..."):
-            try:
-                result = generate_simulation_scenario()
-                st.session_state["simulation"] = result
-                st.session_state["sim_selected"] = None
-                st.session_state["sim_answered"] = False
-                st.session_state["approvals"]["simulation"] = {}
-            except Exception as exc:
-                st.error(f"Hata: {exc}")
+        result, error = _run_via_queue("Senaryo oluşturuluyor", generate_simulation_scenario)
+        if error:
+            st.error(f"Hata: {error}")
+        else:
+            st.session_state["simulation"] = result
+            st.session_state["sim_selected"] = None
+            st.session_state["sim_answered"] = False
+            st.session_state["approvals"]["simulation"] = {}
 
     sim = st.session_state.get("simulation")
     if sim:
@@ -432,6 +490,8 @@ with tabs[3]:
         "⚠️ Onaylanmamış içerikler eğitime aktarılmaz. Lütfen tüm içerikleri inceleyin."
     )
 
+    from src.retrieval import lookup_parent_context
+
     approvals = st.session_state["approvals"]
     total_items = 0
     approved_count = 0
@@ -444,6 +504,7 @@ with tabs[3]:
         items: list,
         label_fn,
         detail_fn,
+        citations_fn=None,
     ) -> tuple[int, int, int]:
         """
         Render an approval section with approve/reject buttons per item.
@@ -482,6 +543,31 @@ with tabs[3]:
 
             with st.expander(f"{label} — {'✅ Onaylandı' if current_state == 'onaylandi' else '❌ Reddedildi' if current_state == 'reddedildi' else '⏳ İnceleniyor'}"):
                 st.markdown(detail)
+
+                # Show source chunk details if citations are available
+                if citations_fn is not None:
+                    citation_ids = citations_fn(item)
+                    if citation_ids:
+                        with st.expander("📎 Kaynak Chunk Detayları", expanded=False):
+                            for pid in citation_ids:
+                                ctx = lookup_parent_context(str(pid))
+                                if ctx:
+                                    src_label = "📘 Mevzuat" if ctx["source"] == "explicit" else "🧠 Tacit"
+                                    st.markdown(
+                                        f"**{src_label}** — `{pid}` | {ctx['filename']}"
+                                    )
+                                    st.markdown("**Üst Bağlam — LLM'ye gönderilen:**")
+                                    st.info(ctx["parent_text"])
+                                    if ctx["children"]:
+                                        st.markdown("**Eşleşen Alt Parçalar — vektör aramasında bulunan:**")
+                                        for child in ctx["children"]:
+                                            st.success(
+                                                f"Alt Parça #{child['child_index']}: {child['text']}"
+                                            )
+                                    st.markdown("---")
+                                else:
+                                    st.caption(f"`{pid}` — chunk bulunamadı (veritabanı yenilenmesi gerekebilir)")
+
                 col_a, col_r, col_c = st.columns([1, 1, 4])
                 with col_a:
                     if st.button("✓ Onayla", key=f"approve_{section_key}_{idx}"):
@@ -502,6 +588,8 @@ with tabs[3]:
     # --- Process Map ---
     pm = st.session_state.get("process_map")
     pm_items = pm.get("steps", []) if pm and "hata" not in pm else []
+    if pm and "hata" not in pm:
+        _render_confidence_banner(pm)
     t, a, r = render_approval_section(
         "process_map",
         "🗺️ Süreç Haritası Adımları",
@@ -513,8 +601,9 @@ with tabs[3]:
             f"**Karar Noktası:** {s.get('karar_noktasi', '')}\n\n"
             f"**Risk:** {s.get('risk', '')}\n\n"
             f"**Kontrol:** {s.get('kontrol', '')}\n\n"
-            f"📌 Chunk indeksleri: {s.get('kaynak_chunk_indeksleri', [])}"
+            f"📌 Kaynak: {s.get('kaynak_chunk_indeksleri', [])}"
         ),
+        citations_fn=lambda s: s.get("kaynak_chunk_indeksleri", []),
     )
     total_items += t; approved_count += a; rejected_count += r
 
@@ -523,6 +612,8 @@ with tabs[3]:
     # --- Error Cards ---
     ec = st.session_state.get("error_cards")
     ec_items = ec.get("hata_kartlari", []) if ec and "hata" not in ec else []
+    if ec and "hata" not in ec:
+        _render_confidence_banner(ec)
     t, a, r = render_approval_section(
         "error_cards",
         "⚠️ Hata Kartları",
@@ -530,11 +621,12 @@ with tabs[3]:
         label_fn=lambda c: f"Kart {c.get('kart_no', '?')}: {c.get('hata', '')[:60]}",
         detail_fn=lambda c: (
             f"**Hata:** {c.get('hata', '')}\n\n"
-            f"**Kök Neden:** {c.get('kök_neden', '')}\n\n"
-            f"**Tespit Yöntemi:** {c.get('tespit_yöntemi', '')}\n\n"
+            f"**Kök Neden:** {c.get('kok_neden', '')}\n\n"
+            f"**Tespit Yöntemi:** {c.get('tespit_yontemi', '')}\n\n"
             f"**Doğru Uygulama:** {c.get('dogru_uygulama', '')}\n\n"
-            f"📌 Chunk indeksleri: {c.get('kaynak_chunk_indeksleri', [])}"
+            f"📌 Kaynak: {c.get('kaynak_chunk_indeksleri', [])}"
         ),
+        citations_fn=lambda c: c.get("kaynak_chunk_indeksleri", []),
     )
     total_items += t; approved_count += a; rejected_count += r
 
@@ -543,6 +635,8 @@ with tabs[3]:
     # --- Glossary ---
     gl = st.session_state.get("glossary")
     gl_items = gl.get("terimler", []) if gl and "hata" not in gl else []
+    if gl and "hata" not in gl:
+        _render_confidence_banner(gl)
     t, a, r = render_approval_section(
         "glossary",
         "📖 Terim Sözlüğü",
@@ -551,8 +645,9 @@ with tabs[3]:
         detail_fn=lambda t_: (
             f"**Tanım:** {t_.get('tanim', '')}\n\n"
             f"**Kullanım Örneği:** {t_.get('kullanim_ornegi', '')}\n\n"
-            f"📌 Chunk indeksleri: {t_.get('kaynak_chunk_indeksleri', [])}"
+            f"📌 Kaynak: {t_.get('kaynak_chunk_indeksleri', [])}"
         ),
+        citations_fn=lambda t_: t_.get("kaynak_chunk_indeksleri", []),
     )
     total_items += t; approved_count += a; rejected_count += r
 
@@ -561,6 +656,8 @@ with tabs[3]:
     # --- Simulation ---
     sim = st.session_state.get("simulation")
     sim_items = [sim] if sim and "hata" not in sim else []
+    if sim and "hata" not in sim:
+        _render_confidence_banner(sim)
     t, a, r = render_approval_section(
         "simulation",
         "🎮 Simülasyon Senaryosu",
@@ -570,8 +667,9 @@ with tabs[3]:
             f"**Durum:** {s.get('durum_aciklamasi', '')}\n\n"
             f"**Soru:** {s.get('soru', '')}\n\n"
             f"**Öğrenme Hedefi:** {s.get('ogrenme_hedefi', '')}\n\n"
-            f"📌 Chunk indeksleri: {s.get('kaynak_chunk_indeksleri', [])}"
+            f"📌 Kaynak: {s.get('kaynak_chunk_indeksleri', [])}"
         ),
+        citations_fn=lambda s: s.get("kaynak_chunk_indeksleri", []),
     )
     total_items += t; approved_count += a; rejected_count += r
 
@@ -746,7 +844,7 @@ with tabs[5]:
         try:
             client = _chromadb.PersistentClient(path=str(_chroma_dir))
             col = client.get_or_create_collection(
-                name="tee_knowledge_base",
+                name="tee_children",
                 metadata={"hnsw:space": "cosine"},
             )
             if col.count() == 0:
@@ -754,12 +852,18 @@ with tabs[5]:
             data = col.get(include=["documents", "metadatas"])
             chunks = []
             for doc, meta in zip(data["documents"], data["metadatas"]):
+                # Phase 1.2.A: enriched=true ise gömülen 'doc' bağlam özeti +
+                # orijinaldir. UI'da orijinali göstermek daha anlaşılır.
+                original = meta.get("original_text", doc)
                 chunks.append({
-                    "text": doc,
+                    "text": original,
+                    "embedded_text": doc,
+                    "enriched": bool(meta.get("enriched", False)),
                     "source": meta.get("source", "bilinmiyor"),
                     "filename": meta.get("filename", "bilinmiyor"),
-                    "chunk_index": meta.get("chunk_index", 0),
-                    "char_count": meta.get("char_count", len(doc)),
+                    "chunk_index": meta.get("child_index", 0),
+                    "parent_id": meta.get("parent_id", ""),
+                    "char_count": meta.get("char_count", len(original)),
                 })
             chunks.sort(key=lambda c: (c["source"], c["chunk_index"]))
             return chunks
@@ -822,18 +926,27 @@ with tabs[5]:
             if len(chunk["text"]) > 280:
                 preview += "…"
 
+            enriched_badge = (
+                "<span class='chunk-badge' style='background:#8e44ad;color:white;'>📑 Bağlam Zenginleştirildi</span>"
+                if chunk.get("enriched") else ""
+            )
             with st.expander(
-                f"{badge_lbl}  ·  Parça #{chunk['chunk_index']}  ·  {chunk['char_count']} karakter"
+                f"{badge_lbl}  ·  Alt Parça #{chunk['chunk_index']}  ·  {chunk['char_count']} karakter"
             ):
                 st.markdown(
                     f"""<div class="chunk-card {css_cls}">
                     <div class="chunk-meta">
                         <span class="chunk-badge {badge_cls}">{badge_lbl}</span>
+                        {enriched_badge}
                         Dosya: <b>{chunk['filename']}</b> &nbsp;·&nbsp;
-                        Parça indeksi: <b>{chunk['chunk_index']}</b> &nbsp;·&nbsp;
+                        Alt parça: <b>#{chunk['chunk_index']}</b> &nbsp;·&nbsp;
+                        Üst parça: <b>{chunk['parent_id']}</b> &nbsp;·&nbsp;
                         {chunk['char_count']} karakter
                     </div>
                     <div class="chunk-text">{chunk['text'].replace(chr(10), '<br>')}</div>
                     </div>""",
                     unsafe_allow_html=True,
                 )
+                if chunk.get("enriched"):
+                    with st.expander("🔬 Gömme için kullanılan zenginleştirilmiş metin"):
+                        st.code(chunk["embedded_text"], language=None)

@@ -5,3 +5,9 @@ __pycache__/
 processed/
 .DS_Store
 *.key
+*.pptx
+*.docx
+.claude/
+logs/
+evaluation/results/
+optimized_prompts.json

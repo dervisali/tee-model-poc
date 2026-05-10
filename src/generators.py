@@ -1,31 +1,36 @@
 """
-Content generation module for TEE-Model POC.
+TEE-Model içerik üreticileri — Ollama gemma3:4b üzerinde grounded üretim.
 
-All generators are strictly grounded: the LLM is instructed to use ONLY the
-retrieved context chunks and cite their indices. Includes JSON retry logic
-and mock-mode fixtures for UI testing without API quota consumption.
+Tüm üreticiler kesin biçimde dayandırılmıştır (grounded): LLM'e yalnızca
+retrieve edilen parent parçaları gönderilir; sistemin "BAĞLAM dışında bilgi
+üretme" talimatı her çağrıda zorunludur.
+
+Çıktılar Pydantic şemaları ile sınırlandırılır; Ollama'nın `format=`
+yapılandırılmış JSON modu, modelin şemaya uyumlu JSON üretmesini garanti eder.
+Önceki Gemini `response_schema` davranışı bire bir karşılanır.
+
+MOCK_MODE açıkken hiçbir yerel veya uzak servise dokunulmaz; sabit fixture
+çıktıları döner. Bu, hem CI ortamlarında hem de Streamlit UI testinde gerekli.
 """
 
-import os
+from __future__ import annotations
+
 import json
 import logging
 from pathlib import Path
 
-from dotenv import load_dotenv
-from google import genai
+from pydantic import BaseModel
 
-from src.retrieval import retrieve_context, build_context_text
+from src.config import settings
+from src.llm import generate as llm_generate
+from src.retrieval import build_context_text, retrieve_context
 
-load_dotenv()
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
-MOCK_MODE = os.getenv("MOCK_MODE", "false").lower() == "true"
-GENERATION_MODEL = "gemini-2.5-flash"
 
 # ---------------------------------------------------------------------------
-# Grounding system prompt (injected into every generator call)
+# Grounding sistem talimatı
 # ---------------------------------------------------------------------------
 
 _GROUNDING_TEMPLATE = """\
@@ -41,115 +46,77 @@ BAĞLAM:
 KAYNAK CHUNK İNDEKSLERİ: {chunk_indices}
 """
 
+
 # ---------------------------------------------------------------------------
-# Shared helpers
+# Pydantic şemaları — yapılandırılmış çıktı için
 # ---------------------------------------------------------------------------
 
-
-def _get_genai_client() -> genai.Client:
-    """Initialise and return the google-genai client."""
-    api_key = os.getenv("GOOGLE_API_KEY")
-    if not api_key:
-        raise EnvironmentError(
-            "GOOGLE_API_KEY ortam değişkeni bulunamadı. "
-            "Lütfen .env dosyasını kontrol edin."
-        )
-    return genai.Client(api_key=api_key)
-
-
-def _call_llm(client: genai.Client, prompt: str) -> str:
-    """
-    Send a prompt to gemini-2.5-flash and return the raw text response.
-
-    Parameters
-    ----------
-    client : genai.Client
-        Authenticated google-genai client.
-    prompt : str
-        Full prompt text.
-
-    Returns
-    -------
-    str
-        Model response text.
-
-    Raises
-    ------
-    RuntimeError
-        On API failure.
-    """
-    try:
-        response = client.models.generate_content(
-            model=GENERATION_MODEL,
-            contents=prompt,
-        )
-        return response.text.strip()
-    except Exception as exc:
-        raise RuntimeError(f"LLM API hatası: {exc}") from exc
+class ProcessStep(BaseModel):
+    adim_no: int
+    baslik: str
+    giris: str
+    cikis: str
+    karar_noktasi: str
+    risk: str
+    kontrol: str
+    kaynak_chunk_indeksleri: list[str]
 
 
-def _parse_json_with_retry(client: genai.Client, prompt: str, raw: str) -> dict:
-    """
-    Attempt to parse a JSON string, retrying once if it fails.
-
-    On first failure, appends a strict JSON instruction and re-calls the model.
-    On second failure, returns an error dict containing the raw output.
-
-    Parameters
-    ----------
-    client : genai.Client
-        Authenticated google-genai client.
-    prompt : str
-        Original prompt (used for retry).
-    raw : str
-        Initial LLM response to parse.
-
-    Returns
-    -------
-    dict
-        Parsed JSON or error fallback.
-    """
-    # Strip markdown code fences if present
-    cleaned = raw.strip()
-    if cleaned.startswith("```"):
-        lines = cleaned.splitlines()
-        cleaned = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-
-    try:
-        return json.loads(cleaned)
-    except json.JSONDecodeError:
-        logger.warning("JSON ayrıştırma başarısız, yeniden deneniyor...")
-
-    retry_prompt = (
-        prompt
-        + "\n\nYALNIZCA geçerli JSON döndür. Markdown, açıklama veya ek metin ekleme."
-    )
-    try:
-        retry_raw = _call_llm(client, retry_prompt)
-        retry_cleaned = retry_raw.strip()
-        if retry_cleaned.startswith("```"):
-            lines = retry_cleaned.splitlines()
-            retry_cleaned = "\n".join(
-                lines[1:-1] if lines[-1].strip() == "```" else lines[1:]
-            )
-        return json.loads(retry_cleaned)
-    except (json.JSONDecodeError, RuntimeError) as exc:
-        logger.error("İkinci JSON ayrıştırma denemesi de başarısız: %s", exc)
-        return {"hata": "İçerik üretilemedi", "ham_çıktı": raw}
+class ProcessMapSchema(BaseModel):
+    steps: list[ProcessStep]
 
 
-_MIN_CONTEXT_CHUNKS = 2       # Warn if retrieval returns fewer than this many chunks.
-_FALLBACK_THRESHOLD = 1.2     # Widened distance threshold used on retry.
+class ErrorCard(BaseModel):
+    kart_no: int
+    hata: str
+    kok_neden: str
+    tespit_yontemi: str
+    dogru_uygulama: str
+    kaynak_chunk_indeksleri: list[str]
 
-_OPTIMIZED_PROMPTS_PATH = Path(__file__).resolve().parent.parent / "optimized_prompts.json"
+
+class ErrorCardsSchema(BaseModel):
+    hata_kartlari: list[ErrorCard]
+
+
+class Term(BaseModel):
+    terim: str
+    tanim: str
+    kullanim_ornegi: str
+    kaynak_chunk_indeksleri: list[str]
+
+
+class GlossarySchema(BaseModel):
+    terimler: list[Term]
+
+
+class SimulationOption(BaseModel):
+    id: str
+    metin: str
+    dogru_mu: bool
+    geri_bildirim: str
+    sonuc: str
+
+
+class SimulationSchema(BaseModel):
+    senaryo_basligi: str
+    durum_aciklamasi: str
+    soru: str
+    secenekler: list[SimulationOption]
+    ogrenme_hedefi: str
+    kaynak_chunk_indeksleri: list[str]
+
+
+# ---------------------------------------------------------------------------
+# Sabitler
+# ---------------------------------------------------------------------------
+
+_MIN_CONTEXT_CHUNKS = 2
+_OPTIMIZED_PROMPTS_PATH = settings.BASE_DIR / "optimized_prompts.json"
 
 
 def _load_optimized_prompt(generator_key: str) -> dict | None:
-    """
-    Return saved optimized {query, instruction} for a generator, or None if not saved.
-
-    Reads from optimized_prompts.json written by the Prompt Optimizer tab.
-    """
+    """Prompt Optimizer tarafından kaydedilen en iyi varyantı yükler."""
     if not _OPTIMIZED_PROMPTS_PATH.exists():
         return None
     try:
@@ -159,56 +126,92 @@ def _load_optimized_prompt(generator_key: str) -> dict | None:
         return None
 
 
-def _build_grounded_prompt(query: str, extra_instruction: str, top_k: int = 7) -> tuple[str, list[int]]:
+def _build_grounded_prompt(
+    query: str,
+    extra_instruction: str,
+    top_k: int = 7,
+) -> tuple[str, str, list[str]]:
     """
-    Retrieve context for a query and compose a grounded prompt.
+    Sorgu için bağlam çek ve grounded prompt'u kompoze et.
+    Backward-compat: 3-tuple döndürür (system, user, chunk_indices).
 
-    Includes a retrieval health check: if fewer than _MIN_CONTEXT_CHUNKS pass
-    the default distance threshold, the call is retried with a wider threshold
-    (_FALLBACK_THRESHOLD) and a warning is logged. This surfaces thin-context
-    situations before they silently become hallucinated or "not found" output.
-
-    Parameters
-    ----------
-    query : str
-        Semantic search query (Turkish).
-    extra_instruction : str
-        Task-specific instruction appended after the grounding block.
-    top_k : int
-        Number of context chunks to retrieve.
-
-    Returns
-    -------
-    tuple[str, list[int]]
-        - Full prompt string.
-        - List of chunk indices used (for citation).
+    Confidence scoring için tam chunk listesi gerekenler
+    `_build_grounded_prompt_with_chunks` kullanmalı.
     """
-    chunks = retrieve_context(query, top_k=top_k)
+    system, user, indices, _ = _build_grounded_prompt_with_chunks(query, extra_instruction, top_k)
+    return system, user, indices
+
+
+def _build_grounded_prompt_with_chunks(
+    query: str,
+    extra_instruction: str,
+    top_k: int = 7,
+) -> tuple[str, str, list[str], list[dict]]:
+    """
+    `_build_grounded_prompt` ile aynıdır, ek olarak retrieve edilen tam chunk
+    listesini de döner — Phase 2.2 confidence scoring bunu kullanır.
+
+    Phase 1.4: ENABLE_QUERY_REWRITING true ise, retrieval çok-sorgulu
+    moda geçer (orijinal + 3 varyant); sonuçlar parent_id bazında
+    deduplicate edilip birleşik skora göre sıralanır.
+    """
+    if settings.ENABLE_QUERY_REWRITING:
+        from src.query_rewriter import multi_query_retrieve
+        logger.info("Multi-query retrieval aktif (ENABLE_QUERY_REWRITING=true).")
+        result = multi_query_retrieve(query, top_k=top_k)
+        chunks = result["merged_results"]
+        if result["variants"]:
+            logger.info("Sorgu varyantları: %s", result["variants"])
+    else:
+        chunks = retrieve_context(query, top_k=top_k)
 
     if len(chunks) < _MIN_CONTEXT_CHUNKS:
         logger.warning(
-            "Yetersiz bağlam: '%s' sorgusu için yalnızca %d chunk döndü "
-            "(eşik: varsayılan). Daha geniş eşikle (%.1f) yeniden deneniyor.",
-            query, len(chunks), _FALLBACK_THRESHOLD,
+            "Yetersiz bağlam: '%s' sorgusu için %d chunk; eşik genişletiliyor.",
+            query, len(chunks),
         )
-        chunks = retrieve_context(query, top_k=top_k, distance_threshold=_FALLBACK_THRESHOLD)
-        logger.warning(
-            "Geniş eşikle %d chunk döndü. İçerik kalitesi düşük olabilir; "
-            "sonuçları dikkatle inceleyin.", len(chunks),
+        chunks = retrieve_context(
+            query,
+            top_k=top_k,
+            distance_threshold=settings.RETRIEVAL_FALLBACK_THRESHOLD,
         )
 
     context_text, chunk_indices = build_context_text(chunks)
-    grounding_block = _GROUNDING_TEMPLATE.format(
+    system_instruction = _GROUNDING_TEMPLATE.format(
         context_text=context_text,
         chunk_indices=chunk_indices,
     )
-    full_prompt = grounding_block + "\n\n" + extra_instruction
-    return full_prompt, chunk_indices
+    return system_instruction, extra_instruction, chunk_indices, chunks
 
 
 # ---------------------------------------------------------------------------
-# Mock fixtures
+# MOCK fixtures
 # ---------------------------------------------------------------------------
+
+_MOCK_CONFIDENCE_HIGH = {
+    "guven_skoru": 0.91,
+    "desteklenen_iddialar": 14,
+    "desteklenmeyen_iddialar": 1,
+    "desteklenmeyen_liste": ["Ay başında kadro değişikliklerinin sisteme işlenme zorunluluğu mevzuat dışı."],
+    "uzman_onay_tavsiyesi": "hizli_inceleme",
+    "rozet_renk": "green",
+    "rozet_metin": "Yüksek Güven",
+    "hata": False,
+}
+
+_MOCK_CONFIDENCE_MED = {
+    "guven_skoru": 0.74,
+    "desteklenen_iddialar": 8,
+    "desteklenmeyen_iddialar": 3,
+    "desteklenmeyen_liste": [
+        "Tespit yöntemi olarak 'denetim' ifadesi mevzuatta yer almamaktadır.",
+        "Belirli yasal yaptırımlar belge dışı.",
+    ],
+    "uzman_onay_tavsiyesi": "detayli_inceleme",
+    "rozet_renk": "yellow",
+    "rozet_metin": "Orta Güven — İncele",
+    "hata": False,
+}
 
 _MOCK_PROCESS_MAP = {
     "steps": [
@@ -220,7 +223,7 @@ _MOCK_PROCESS_MAP = {
             "karar_noktasi": "Değişiklik var mı?",
             "risk": "Eksik bildirim nedeniyle yanlış hesaplama",
             "kontrol": "Sisteme girilen veriler muhasebe birimiyle karşılaştırılır",
-            "kaynak_chunk_indeksleri": [0, 1],
+            "kaynak_chunk_indeksleri": ["explicit_mevzuat_p1", "explicit_mevzuat_p2"],
         },
         {
             "adim_no": 2,
@@ -230,7 +233,7 @@ _MOCK_PROCESS_MAP = {
             "karar_noktasi": "Belge eksiksiz mi?",
             "risk": "Belgesiz personele maaş işlenmesi",
             "kontrol": "Özlük dosyasında belge varlığı kontrol edilir",
-            "kaynak_chunk_indeksleri": [2],
+            "kaynak_chunk_indeksleri": ["explicit_mevzuat_p3"],
         },
         {
             "adim_no": 3,
@@ -240,27 +243,7 @@ _MOCK_PROCESS_MAP = {
             "karar_noktasi": "İcra 1/4 sınırını aşıyor mu?",
             "risk": "Yasal limit aşımı ve personel şikayeti",
             "kontrol": "Net aylığın 1/4 hesabı yapılır",
-            "kaynak_chunk_indeksleri": [1, 3],
-        },
-        {
-            "adim_no": 4,
-            "baslik": "Bordroyu Amir Onayına Sun",
-            "giris": "Tamamlanmış bordro taslağı",
-            "cikis": "Onaylı bordro",
-            "karar_noktasi": "Onay alındı mı?",
-            "risk": "Geç onay nedeniyle maaş gecikmesi",
-            "kontrol": "Onay tarihi 10. günü aşmıyor mu?",
-            "kaynak_chunk_indeksleri": [2],
-        },
-        {
-            "adim_no": 5,
-            "baslik": "Bordroyu Muhasebe Birimine İlet",
-            "giris": "Onaylı bordro",
-            "cikis": "Muhasebe fişi ve ödeme emri",
-            "karar_noktasi": "Son teslim tarihi (9. gün 17:00) geçildi mi?",
-            "risk": "Geç teslim halinde maaş gecikmesi",
-            "kontrol": "Teslim saati muhasebe birimi iç akışıyla uyumlu mu?",
-            "kaynak_chunk_indeksleri": [0, 4],
+            "kaynak_chunk_indeksleri": ["explicit_mevzuat_p4"],
         },
     ]
 }
@@ -270,26 +253,18 @@ _MOCK_ERROR_CARDS = {
         {
             "kart_no": 1,
             "hata": "Göreve başlama belgesi alınmadan maaş sisteme işlenmesi",
-            "kök_neden": "Yeni mutemet, personelin fiziksel varlığını belge yerine geçerli sayıyor",
-            "tespit_yöntemi": "Denetimde özlük dosyasında göreve başlama belgesi bulunamaması",
+            "kok_neden": "Yeni mutemet, personelin fiziksel varlığını belge yerine geçerli sayıyor",
+            "tespit_yontemi": "Denetimde özlük dosyasında göreve başlama belgesi bulunamaması",
             "dogru_uygulama": "Belge imzalanmadan maaş sisteme girilmez; belge süreci tamamlanana kadar beklenir",
-            "kaynak_chunk_indeksleri": [2, 5],
+            "kaynak_chunk_indeksleri": ["explicit_mevzuat_p3", "tacit_interview_clean_p1"],
         },
         {
             "kart_no": 2,
             "hata": "Ocak ayında kümülatif gelir vergisi matrahının sıfırlanmaması",
-            "kök_neden": "Sistem otomatik sıfırlamaz; mutemet manuel adımı unutuyor",
-            "tespit_yöntemi": "Personel yanlış vergi diliminden vergi ödediğini fark edip şikayet ediyor",
+            "kok_neden": "Sistem otomatik sıfırlamaz; mutemet manuel adımı unutuyor",
+            "tespit_yontemi": "Personel yanlış vergi diliminden vergi ödediğini fark edip şikayet ediyor",
             "dogru_uygulama": "Her yılın ilk bordrosunda kümülatif matrah sıfırlanır ve kayıt altına alınır",
-            "kaynak_chunk_indeksleri": [1],
-        },
-        {
-            "kart_no": 3,
-            "hata": "İcra kesintisinde net aylığın 1/4 sınırının aşılması",
-            "kök_neden": "Birden fazla icra kararı varken toplam kontrol yapılmaması",
-            "tespit_yöntemi": "Personelden idari şikayet; hukuk birimi incelemesi",
-            "dogru_uygulama": "Tüm icra kesintilerinin toplamı net aylığın 1/4'ünü geçmemeli; sıra ile uygulanmalı",
-            "kaynak_chunk_indeksleri": [1, 3],
+            "kaynak_chunk_indeksleri": ["explicit_mevzuat_p1"],
         },
     ]
 }
@@ -300,31 +275,19 @@ _MOCK_GLOSSARY = {
             "terim": "Kümülatif Matrah",
             "tanim": "Yıl başından itibaren biriken gelir vergisi hesaplama tabanı; her Ocak ayında sıfırlanır.",
             "kullanim_ornegi": "Ocak bordrosunda kümülatif matrah sıfırlanmazsa vergi dilimi yanlış hesaplanır.",
-            "kaynak_chunk_indeksleri": [1],
+            "kaynak_chunk_indeksleri": ["explicit_mevzuat_p1"],
         },
         {
             "terim": "İcra Kesintisi",
             "tanim": "Mahkeme veya icra müdürlüğü kararıyla maaştan yapılan yasal kesinti; net aylığın 1/4'ünü geçemez.",
             "kullanim_ornegi": "İcra kesintisi uygulamak için yazılı tebligat şarttır.",
-            "kaynak_chunk_indeksleri": [1, 3],
+            "kaynak_chunk_indeksleri": ["explicit_mevzuat_p1", "explicit_mevzuat_p4"],
         },
         {
             "terim": "Göreve Başlama Belgesi",
             "tanim": "Personelin kuruma ilk katıldığı günü resmi olarak belgeleyen, amir onaylı formdur.",
             "kullanim_ornegi": "Göreve başlama belgesi olmadan maaş sisteme işlenemez.",
-            "kaynak_chunk_indeksleri": [2],
-        },
-        {
-            "terim": "Aylık Katsayısı",
-            "tanim": "Maaş göstergesi rakamının çarpıldığı ve her yıl Bakanlar Kurulu ile belirlenen katsayı.",
-            "kullanim_ornegi": "Katsayı geç girilirse eksik ödeme ve fark mahsubu zorunlu olur.",
-            "kaynak_chunk_indeksleri": [0],
-        },
-        {
-            "terim": "Form-ADB-01",
-            "tanim": "Aile Durum Bildirimi formu; medeni hal, çocuk sayısı ve bakmakla yükümlü kişileri gösterir.",
-            "kullanim_ornegi": "Evlilik durumunda 30 gün içinde ADB-01 güncellenmesi zorunludur.",
-            "kaynak_chunk_indeksleri": [2],
+            "kaynak_chunk_indeksleri": ["explicit_mevzuat_p3"],
         },
     ]
 }
@@ -339,248 +302,183 @@ _MOCK_SIMULATION = {
     "secenekler": [
         {
             "id": "A",
-            "metin": "Brüt maaşı 31'e bölüp 9 ile çarparım (23 Mart'tan 31 Mart'a kadar 9 gün). SGK Form 4A'yı 23 Mart tarihi ile bildiririm.",
+            "metin": "Brüt maaşı 31'e bölüp 9 ile çarparım. SGK Form 4A'yı 23 Mart tarihi ile bildiririm.",
             "dogru_mu": True,
-            "geri_bildirim": "Doğru! Ay ortası işe girişte kısmi maaş hesabı bu şekilde yapılır. Form 4A bildirimi gerçek işe başlama tarihi olan 23 Mart olmalıdır.",
-            "sonuc": "Personel doğru tutar üzerinden maaş alır ve SGK prim günü eksiksiz bildirilir.",
+            "geri_bildirim": "Doğru! Ay ortası işe girişte kısmi maaş hesabı bu şekilde yapılır.",
+            "sonuc": "Personel doğru tutar üzerinden maaş alır.",
         },
         {
             "id": "B",
             "metin": "Tam ay maaşı öderim, zira personel resmi kadro listesinde bu ay yer alıyor.",
             "dogru_mu": False,
-            "geri_bildirim": "Yanlış. Çalışılmayan günler için maaş ödenmez; tam ay ödeme fazla ödeme sayılır ve iade sürecini başlatır.",
-            "sonuc": "Fazla ödeme nedeniyle personele yazılı tebligat gönderilmek zorunda kalınır.",
+            "geri_bildirim": "Yanlış. Çalışılmayan günler için maaş ödenmez.",
+            "sonuc": "Fazla ödeme nedeniyle iade süreci başlar.",
         },
         {
             "id": "C",
             "metin": "Bir sonraki ay toplu öderim; bu ay için herhangi bir işlem yapmam.",
             "dogru_mu": False,
-            "geri_bildirim": "Yanlış. Personelin maaşı fiilen çalıştığı dönem için aynı ay ödenmelidir. Erteleme yasal değildir.",
-            "sonuc": "Gecikmiş ödeme nedeniyle idari işlem başlatılabilir ve personel mağduriyeti doğar.",
+            "geri_bildirim": "Yanlış. Personelin maaşı fiilen çalıştığı dönem için aynı ay ödenmelidir.",
+            "sonuc": "Gecikmiş ödeme nedeniyle idari işlem başlatılabilir.",
         },
     ],
     "ogrenme_hedefi": "Ay ortası işe girişlerde kısmi maaş hesabı ve SGK Form 4A bildirim tarihini doğru uygulamak.",
-    "kaynak_chunk_indeksleri": [2, 4],
+    "kaynak_chunk_indeksleri": ["explicit_mevzuat_p2", "tacit_interview_clean_p3"],
 }
 
+
 # ---------------------------------------------------------------------------
-# Generators
+# Tek geçişli yapılandırılmış üretim
 # ---------------------------------------------------------------------------
 
+def _structured_generate(
+    *,
+    query: str,
+    instruction: str,
+    schema: type[BaseModel],
+    top_k: int,
+    content_type: str,
+) -> dict:
+    """
+    Grounded sistem talimatı + verilen şema ile tek LLM çağrısı yapar.
+    JSON metnini parse edip dict olarak döndürür; başarısız olursa
+    {"hata": ..., "ham_cikti": ...} döndürür.
+
+    Phase 2.2: ENABLE_CONFIDENCE_SCORING true ise, üretilen içeriğe
+    `_confidence` alanı eklenir — kaynak chunk'lara karşı ikinci-geçiş
+    güven skoru.
+    """
+    system, user_prompt, chunk_indices, chunks = _build_grounded_prompt_with_chunks(
+        query, instruction, top_k=top_k,
+    )
+    logger.info("Yapılandırılmış üretim: chunk_count=%d", len(chunk_indices))
+    raw = llm_generate(
+        prompt=user_prompt,
+        system=system,
+        response_format=schema,
+    )
+    try:
+        result = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        logger.error("JSON parse hatası: %s", exc)
+        return {"hata": str(exc), "ham_cikti": raw}
+
+    # Phase 2.2 — güven skoru
+    if settings.ENABLE_CONFIDENCE_SCORING:
+        from src.confidence import score_generated_content
+        try:
+            score = score_generated_content(result, chunks, content_type)
+            result["_confidence"] = score
+        except Exception as exc:
+            logger.warning("Confidence skorlaması atlandı: %s", exc)
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Üreticiler
+# ---------------------------------------------------------------------------
 
 def generate_process_map() -> dict:
-    """
-    Generate a structured payroll process map grounded in the knowledge base.
+    """Maaş mutemetliği süreç haritasını grounded biçimde üretir."""
+    if settings.MOCK_MODE:
+        logger.info("MOCK_MODE: süreç haritası fixture döndürülüyor.")
+        return {**_MOCK_PROCESS_MAP, "_confidence": _MOCK_CONFIDENCE_HIGH}
 
-    Queries for payroll procedure steps and formats the result as a JSON dict
-    containing a list of step objects with source citations.
-
-    Returns
-    -------
-    dict
-        Keys: "steps" (list of step dicts with kaynak_chunk_indeksleri).
-        On LLM failure: {"hata": ..., "ham_çıktı": ...}.
-    """
-    if MOCK_MODE:
-        logger.info("MOCK_MODE: Süreç haritası fixture döndürülüyor.")
-        return _MOCK_PROCESS_MAP
-
-    _opt = _load_optimized_prompt("process_map")
-    query = _opt["query"] if _opt else "maaş hesaplama adımları süreç akışı prosedür"
-    instruction = _opt["instruction"] if _opt else """\
-Yukarıdaki bağlam belgelerine dayanarak maaş mutemetliği süreç haritasını oluştur.
-Aşağıdaki JSON şemasını kullan ve BAŞKA HİÇBİR ŞEY yazma:
-
-{
-  "steps": [
-    {
-      "adim_no": 1,
-      "baslik": "...",
-      "giris": "...",
-      "cikis": "...",
-      "karar_noktasi": "...",
-      "risk": "...",
-      "kontrol": "...",
-      "kaynak_chunk_indeksleri": [0, 2]
-    }
-  ]
-}
-
-Her adım için kullandığın kaynak chunk numaralarını kaynak_chunk_indeksleri alanına yaz.
-"""
-
+    opt = _load_optimized_prompt("process_map")
+    query = opt["query"] if opt else "maaş hesaplama adımları süreç akışı prosedür"
+    instruction = opt["instruction"] if opt else (
+        "Yukarıdaki bağlam belgelerine dayanarak maaş mutemetliği süreç haritasını oluştur. "
+        "Her adım için kullandığın kaynak parent_id değerlerini kaynak_chunk_indeksleri "
+        "alanına yaz. Sadece geçerli JSON döndür."
+    )
     try:
-        prompt, chunk_indices = _build_grounded_prompt(query, instruction, top_k=8)
-        logger.info("Süreç haritası oluşturuluyor. Kullanılan chunk indeksleri: %s", chunk_indices)
-        client = _get_genai_client()
-        raw = _call_llm(client, prompt)
-        return _parse_json_with_retry(client, prompt, raw)
+        return _structured_generate(
+            query=query,
+            instruction=instruction,
+            schema=ProcessMapSchema,
+            top_k=8,
+            content_type="process_map",
+        )
     except Exception as exc:
-        logger.error("Süreç haritası oluşturma hatası: %s", exc)
-        return {"hata": str(exc), "ham_çıktı": ""}
+        logger.error("Süreç haritası üretim hatası: %s", exc)
+        return {"hata": str(exc), "ham_cikti": ""}
 
 
 def generate_error_cards() -> dict:
-    """
-    Generate error/mistake awareness cards grounded in the knowledge base.
+    """Yaygın hatalar üzerine 'hata kartları' üretir."""
+    if settings.MOCK_MODE:
+        logger.info("MOCK_MODE: hata kartları fixture döndürülüyor.")
+        return {**_MOCK_ERROR_CARDS, "_confidence": _MOCK_CONFIDENCE_MED}
 
-    Focuses on common mistakes made by new payroll officers, sourced from
-    both explicit regulation and tacit interview knowledge.
-
-    Returns
-    -------
-    dict
-        Keys: "hata_kartlari" (list of card dicts with kaynak_chunk_indeksleri).
-        On LLM failure: {"hata": ..., "ham_çıktı": ...}.
-    """
-    if MOCK_MODE:
-        logger.info("MOCK_MODE: Hata kartları fixture döndürülüyor.")
-        return _MOCK_ERROR_CARDS
-
-    _opt = _load_optimized_prompt("error_cards")
-    query = _opt["query"] if _opt else "sık yapılan hatalar yanlış uygulama kaçırılan adım"
-    instruction = _opt["instruction"] if _opt else """\
-Yukarıdaki bağlam belgelerine dayanarak yeni maaş mutemedinin sık yaptığı hataları listele.
-Aşağıdaki JSON şemasını kullan ve BAŞKA HİÇBİR ŞEY yazma:
-
-{
-  "hata_kartlari": [
-    {
-      "kart_no": 1,
-      "hata": "...",
-      "kök_neden": "...",
-      "tespit_yöntemi": "...",
-      "dogru_uygulama": "...",
-      "kaynak_chunk_indeksleri": [1, 3]
-    }
-  ]
-}
-
-Her kart için kullandığın kaynak chunk numaralarını kaynak_chunk_indeksleri alanına yaz.
-"""
-
+    opt = _load_optimized_prompt("error_cards")
+    query = opt["query"] if opt else "sık yapılan hatalar yanlış uygulama kaçırılan adım"
+    instruction = opt["instruction"] if opt else (
+        "Yukarıdaki bağlam belgelerine dayanarak yeni maaş mutemedinin sık yaptığı hataları "
+        "listele. Her kart için kullandığın kaynak parent_id değerlerini kaynak_chunk_indeksleri "
+        "alanına yaz. Sadece geçerli JSON döndür."
+    )
     try:
-        prompt, chunk_indices = _build_grounded_prompt(query, instruction, top_k=8)
-        logger.info("Hata kartları oluşturuluyor. Kullanılan chunk indeksleri: %s", chunk_indices)
-        client = _get_genai_client()
-        raw = _call_llm(client, prompt)
-        return _parse_json_with_retry(client, prompt, raw)
+        return _structured_generate(
+            query=query,
+            instruction=instruction,
+            schema=ErrorCardsSchema,
+            top_k=8,
+            content_type="error_cards",
+        )
     except Exception as exc:
-        logger.error("Hata kartları oluşturma hatası: %s", exc)
-        return {"hata": str(exc), "ham_çıktı": ""}
+        logger.error("Hata kartları üretim hatası: %s", exc)
+        return {"hata": str(exc), "ham_cikti": ""}
 
 
 def generate_glossary() -> dict:
-    """
-    Generate a domain-specific glossary grounded in the knowledge base.
+    """Alan terimleri sözlüğünü üretir."""
+    if settings.MOCK_MODE:
+        logger.info("MOCK_MODE: terim sözlüğü fixture döndürülüyor.")
+        return {**_MOCK_GLOSSARY, "_confidence": _MOCK_CONFIDENCE_HIGH}
 
-    Extracts technical terms, abbreviations, and institution-specific phrases
-    from both regulation documents and interview transcripts.
-
-    Returns
-    -------
-    dict
-        Keys: "terimler" (list of term dicts with kaynak_chunk_indeksleri).
-        On LLM failure: {"hata": ..., "ham_çıktı": ...}.
-    """
-    if MOCK_MODE:
-        logger.info("MOCK_MODE: Terim sözlüğü fixture döndürülüyor.")
-        return _MOCK_GLOSSARY
-
-    _opt = _load_optimized_prompt("glossary")
-    query = _opt["query"] if _opt else "kuruma özgü terimler teknik kavramlar kısaltmalar"
-    instruction = _opt["instruction"] if _opt else """\
-Yukarıdaki bağlam belgelerine dayanarak maaş mutemetliği alanına özgü terim sözlüğü oluştur.
-Aşağıdaki JSON şemasını kullan ve BAŞKA HİÇBİR ŞEY yazma:
-
-{
-  "terimler": [
-    {
-      "terim": "...",
-      "tanim": "...",
-      "kullanim_ornegi": "...",
-      "kaynak_chunk_indeksleri": [0]
-    }
-  ]
-}
-
-Her terim için kullandığın kaynak chunk numaralarını kaynak_chunk_indeksleri alanına yaz.
-"""
-
+    opt = _load_optimized_prompt("glossary")
+    query = opt["query"] if opt else "kuruma özgü terimler teknik kavramlar kısaltmalar"
+    instruction = opt["instruction"] if opt else (
+        "Yukarıdaki bağlam belgelerine dayanarak maaş mutemetliği alanına özgü terim sözlüğü oluştur. "
+        "Her terim için kaynak parent_id değerlerini kaynak_chunk_indeksleri alanına yaz. "
+        "Sadece geçerli JSON döndür."
+    )
     try:
-        prompt, chunk_indices = _build_grounded_prompt(query, instruction, top_k=8)
-        logger.info("Terim sözlüğü oluşturuluyor. Kullanılan chunk indeksleri: %s", chunk_indices)
-        client = _get_genai_client()
-        raw = _call_llm(client, prompt)
-        return _parse_json_with_retry(client, prompt, raw)
+        return _structured_generate(
+            query=query,
+            instruction=instruction,
+            schema=GlossarySchema,
+            top_k=8,
+            content_type="glossary",
+        )
     except Exception as exc:
-        logger.error("Terim sözlüğü oluşturma hatası: %s", exc)
-        return {"hata": str(exc), "ham_çıktı": ""}
+        logger.error("Terim sözlüğü üretim hatası: %s", exc)
+        return {"hata": str(exc), "ham_cikti": ""}
 
 
 def generate_simulation_scenario() -> dict:
-    """
-    Generate an interactive simulation scenario grounded in the knowledge base.
+    """Etkileşimli karar simülasyon senaryosu üretir."""
+    if settings.MOCK_MODE:
+        logger.info("MOCK_MODE: simülasyon fixture döndürülüyor.")
+        return {**_MOCK_SIMULATION, "_confidence": _MOCK_CONFIDENCE_MED}
 
-    Focuses on high-risk decision points such as mid-month hires, retroactive
-    raises, or icra (enforcement) limit breaches.
-
-    Returns
-    -------
-    dict
-        Simulation scenario with three answer options, feedback, and source citations.
-        On LLM failure: {"hata": ..., "ham_çıktı": ...}.
-    """
-    if MOCK_MODE:
-        logger.info("MOCK_MODE: Simülasyon senaryosu fixture döndürülüyor.")
-        return _MOCK_SIMULATION
-
-    _opt = _load_optimized_prompt("simulation")
-    query = _opt["query"] if _opt else "kritik karar noktası yüksek hata riski zor durum"
-    instruction = _opt["instruction"] if _opt else """\
-Yukarıdaki bağlam belgelerine dayanarak maaş mutemetliği için etkileşimli bir simülasyon senaryosu oluştur.
-Aşağıdaki JSON şemasını kullan ve BAŞKA HİÇBİR ŞEY yazma:
-
-{
-  "senaryo_basligi": "...",
-  "durum_aciklamasi": "...",
-  "soru": "...",
-  "secenekler": [
-    {
-      "id": "A",
-      "metin": "...",
-      "dogru_mu": true,
-      "geri_bildirim": "...",
-      "sonuc": "..."
-    },
-    {
-      "id": "B",
-      "metin": "...",
-      "dogru_mu": false,
-      "geri_bildirim": "...",
-      "sonuc": "..."
-    },
-    {
-      "id": "C",
-      "metin": "...",
-      "dogru_mu": false,
-      "geri_bildirim": "...",
-      "sonuc": "..."
-    }
-  ],
-  "ogrenme_hedefi": "...",
-  "kaynak_chunk_indeksleri": [2, 5]
-}
-
-Doğru cevap seçeneğinde "dogru_mu": true olmalı. Kaynak chunk numaralarını doldur.
-"""
-
+    opt = _load_optimized_prompt("simulation")
+    query = opt["query"] if opt else "kritik karar noktası yüksek hata riski zor durum"
+    instruction = opt["instruction"] if opt else (
+        "Yukarıdaki bağlam belgelerine dayanarak maaş mutemetliği için etkileşimli bir simülasyon "
+        "senaryosu oluştur. Doğru cevap seçeneğinde dogru_mu = true olmalı. "
+        "Kaynak parent_id değerlerini kaynak_chunk_indeksleri alanına yaz. "
+        "Sadece geçerli JSON döndür."
+    )
     try:
-        prompt, chunk_indices = _build_grounded_prompt(query, instruction, top_k=7)
-        logger.info("Simülasyon senaryosu oluşturuluyor. Kullanılan chunk indeksleri: %s", chunk_indices)
-        client = _get_genai_client()
-        raw = _call_llm(client, prompt)
-        return _parse_json_with_retry(client, prompt, raw)
+        return _structured_generate(
+            query=query,
+            instruction=instruction,
+            schema=SimulationSchema,
+            top_k=7,
+            content_type="simulation",
+        )
     except Exception as exc:
-        logger.error("Simülasyon senaryosu oluşturma hatası: %s", exc)
-        return {"hata": str(exc), "ham_çıktı": ""}
+        logger.error("Simülasyon üretim hatası: %s", exc)
+        return {"hata": str(exc), "ham_cikti": ""}
