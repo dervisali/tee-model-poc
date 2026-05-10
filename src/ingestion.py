@@ -320,7 +320,7 @@ def run_ingestion() -> dict:
     sources = _load_source_files()
 
     parents: dict = {}
-    pending_texts: list[str] = []
+    pending_texts: list[str] = []         # gömülecek metinler (zenginleştirilmiş olabilir)
     pending_ids: list[str] = []
     pending_metas: list[dict] = []
     explicit_children = 0
@@ -328,11 +328,18 @@ def run_ingestion() -> dict:
 
     for source_info in sources:
         stem = Path(source_info["filename"]).stem
-        parent_chunks = _split_into_parent_chunks(source_info["text"])
+        full_doc = source_info["text"]
+        parent_chunks = _split_into_parent_chunks(full_doc)
         logger.info(
             "%s için %d parent chunk üretildi.",
             source_info["source"], len(parent_chunks),
         )
+
+        # Bu kaynağa ait child'ları topla; enrichment kaynak başına yapılır
+        # çünkü full document chunk'ın bağlamı için referanstır.
+        source_child_originals: list[str] = []
+        source_child_ids: list[str] = []
+        source_child_metas: list[dict] = []
 
         for p_idx, parent_text in enumerate(parent_chunks):
             parent_id = f"{stem}_p{p_idx}"
@@ -344,23 +351,49 @@ def run_ingestion() -> dict:
                 "char_count": len(parent_text),
             }
 
-            child_chunks = _split_into_child_chunks(parent_text)
-            for c_idx, child_text in enumerate(child_chunks):
+            for c_idx, child_text in enumerate(_split_into_child_chunks(parent_text)):
                 child_id = f"{stem}_p{p_idx}_c{c_idx}"
-                pending_texts.append(child_text)
-                pending_ids.append(child_id)
-                pending_metas.append({
+                source_child_originals.append(child_text)
+                source_child_ids.append(child_id)
+                source_child_metas.append({
                     "source": source_info["source"],
                     "filename": source_info["filename"],
                     "child_index": c_idx,
                     "parent_id": parent_id,
                     "char_count": len(child_text),
                     "chunking_strategy": settings.CHUNKING_STRATEGY,
+                    "original_text": child_text,  # UI gösterimi için
+                    "enriched": False,
                 })
                 if source_info["source"] == "explicit":
                     explicit_children += 1
                 else:
                     tacit_children += 1
+
+        # Phase 1.2.A — Anthropic Contextual Retrieval
+        if settings.ENABLE_CONTEXTUAL_ENRICHMENT and source_child_originals:
+            from src.contextual_enrichment import enrich_chunks
+            logger.info(
+                "Contextual enrichment başlıyor: %s, %d chunk",
+                stem, len(source_child_originals),
+            )
+            enriched_texts, stats = enrich_chunks(
+                full_doc,
+                source_child_originals,
+                document_id=stem,
+            )
+            logger.info(
+                "Enrichment bitti: %s — hits=%d miss=%d (%.1fs)",
+                stem, stats["hits"], stats["misses"], stats["total_seconds"],
+            )
+            for meta in source_child_metas:
+                meta["enriched"] = True
+            pending_texts.extend(enriched_texts)
+        else:
+            pending_texts.extend(source_child_originals)
+
+        pending_ids.extend(source_child_ids)
+        pending_metas.extend(source_child_metas)
 
     _save_parents(parents)
     logger.info("parents.json kaydedildi: %d parent.", len(parents))
@@ -438,8 +471,8 @@ def insert_new_document(filepath: str, source_type: str) -> dict:
     """
     Mevcut koleksiyona tek bir yeni belge ekler. Var olan veriyi silmez.
 
-    Mission Phase 1.2 buraya yeni `chunking_strategy` parametresi eklenecek;
-    şimdilik mevcut paragraph davranışı korunmaktadır.
+    Phase 1.2.A: ENABLE_CONTEXTUAL_ENRICHMENT açıksa, yeni belgenin tüm
+    chunk'ları LLM ile zenginleştirilir; orijinal metinler metadata'ya yazılır.
     """
     if str(BASE_DIR) not in sys.path:
         sys.path.insert(0, str(BASE_DIR))
@@ -463,7 +496,7 @@ def insert_new_document(filepath: str, source_type: str) -> dict:
     child_col = _get_child_collection()
     parents = _load_parents()
 
-    pending_texts: list[str] = []
+    source_child_originals: list[str] = []
     pending_ids: list[str] = []
     pending_metas: list[dict] = []
 
@@ -478,7 +511,7 @@ def insert_new_document(filepath: str, source_type: str) -> dict:
         }
         for c_idx, child_text in enumerate(_split_into_child_chunks(parent_text)):
             child_id = f"{source_type}_{stem}_p{p_idx}_c{c_idx}"
-            pending_texts.append(child_text)
+            source_child_originals.append(child_text)
             pending_ids.append(child_id)
             pending_metas.append({
                 "source": source_type,
@@ -487,7 +520,26 @@ def insert_new_document(filepath: str, source_type: str) -> dict:
                 "parent_id": parent_id,
                 "char_count": len(child_text),
                 "chunking_strategy": settings.CHUNKING_STRATEGY,
+                "original_text": child_text,
+                "enriched": False,
             })
+
+    if settings.ENABLE_CONTEXTUAL_ENRICHMENT and source_child_originals:
+        from src.contextual_enrichment import enrich_chunks
+        enriched_texts, stats = enrich_chunks(
+            clean_text,
+            source_child_originals,
+            document_id=stem,
+        )
+        for meta in pending_metas:
+            meta["enriched"] = True
+        logger.info(
+            "Yeni belge enrichment: hits=%d miss=%d (%.1fs)",
+            stats["hits"], stats["misses"], stats["total_seconds"],
+        )
+        pending_texts = enriched_texts
+    else:
+        pending_texts = source_child_originals
 
     _save_parents(parents)
 

@@ -785,13 +785,18 @@ with tabs[5]:
             data = col.get(include=["documents", "metadatas"])
             chunks = []
             for doc, meta in zip(data["documents"], data["metadatas"]):
+                # Phase 1.2.A: enriched=true ise gömülen 'doc' bağlam özeti +
+                # orijinaldir. UI'da orijinali göstermek daha anlaşılır.
+                original = meta.get("original_text", doc)
                 chunks.append({
-                    "text": doc,
+                    "text": original,
+                    "embedded_text": doc,
+                    "enriched": bool(meta.get("enriched", False)),
                     "source": meta.get("source", "bilinmiyor"),
                     "filename": meta.get("filename", "bilinmiyor"),
                     "chunk_index": meta.get("child_index", 0),
                     "parent_id": meta.get("parent_id", ""),
-                    "char_count": meta.get("char_count", len(doc)),
+                    "char_count": meta.get("char_count", len(original)),
                 })
             chunks.sort(key=lambda c: (c["source"], c["chunk_index"]))
             return chunks
@@ -854,6 +859,10 @@ with tabs[5]:
             if len(chunk["text"]) > 280:
                 preview += "…"
 
+            enriched_badge = (
+                "<span class='chunk-badge' style='background:#8e44ad;color:white;'>📑 Bağlam Zenginleştirildi</span>"
+                if chunk.get("enriched") else ""
+            )
             with st.expander(
                 f"{badge_lbl}  ·  Alt Parça #{chunk['chunk_index']}  ·  {chunk['char_count']} karakter"
             ):
@@ -861,6 +870,7 @@ with tabs[5]:
                     f"""<div class="chunk-card {css_cls}">
                     <div class="chunk-meta">
                         <span class="chunk-badge {badge_cls}">{badge_lbl}</span>
+                        {enriched_badge}
                         Dosya: <b>{chunk['filename']}</b> &nbsp;·&nbsp;
                         Alt parça: <b>#{chunk['chunk_index']}</b> &nbsp;·&nbsp;
                         Üst parça: <b>{chunk['parent_id']}</b> &nbsp;·&nbsp;
@@ -870,3 +880,6 @@ with tabs[5]:
                     </div>""",
                     unsafe_allow_html=True,
                 )
+                if chunk.get("enriched"):
+                    with st.expander("🔬 Gömme için kullanılan zenginleştirilmiş metin"):
+                        st.code(chunk["embedded_text"], language=None)
