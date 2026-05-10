@@ -81,10 +81,54 @@ st.markdown(
     .badge-tacit   { background: #27ae60; color: white; }
     .chunk-meta    { color: #888; font-size: 0.78rem; margin-bottom: 0.4rem; }
     .chunk-text    { color: #333; }
+    .confidence-banner {
+        padding: 0.6rem 1rem;
+        border-radius: 8px;
+        margin: 0.4rem 0 1rem 0;
+        font-size: 0.92rem;
+        line-height: 1.5;
+    }
+    .confidence-banner.green  { background: #d4edda; border-left: 5px solid #27ae60; color: #155724; }
+    .confidence-banner.yellow { background: #fff3cd; border-left: 5px solid #f1c40f; color: #856404; }
+    .confidence-banner.red    { background: #f8d7da; border-left: 5px solid #e74c3c; color: #721c24; }
+    .confidence-meta { font-size: 0.82rem; opacity: 0.85; }
     </style>
     """,
     unsafe_allow_html=True,
 )
+
+
+def _render_confidence_banner(content: dict) -> None:
+    """Üretilen içerikteki _confidence rozetini Tab 4'te render eder."""
+    score = content.get("_confidence") if isinstance(content, dict) else None
+    if not score or score.get("hata"):
+        return
+    color = score.get("rozet_renk", "yellow")
+    label = score.get("rozet_metin", "Güven Skoru")
+    skor = score.get("guven_skoru", 0.0)
+    sup = score.get("desteklenen_iddialar", 0)
+    nosup = score.get("desteklenmeyen_iddialar", 0)
+    advice_map = {
+        "hizli_inceleme": "Hızlı İnceleme",
+        "detayli_inceleme": "Detaylı İnceleme",
+        "reddet": "Reddet",
+    }
+    advice = advice_map.get(score.get("uzman_onay_tavsiyesi"), "İncele")
+    unsupported = score.get("desteklenmeyen_liste") or []
+    extra = ""
+    if unsupported:
+        items = "".join(f"<li>{u}</li>" for u in unsupported[:5])
+        extra = f"<details><summary>Desteklenmeyen iddialar ({len(unsupported)})</summary><ul>{items}</ul></details>"
+    st.markdown(
+        f"""<div class="confidence-banner {color}">
+        <b>🛡️ {label}</b> &nbsp;·&nbsp;
+        Güven skoru: <b>{skor:.2f}</b> &nbsp;·&nbsp;
+        Desteklenen: <b>{sup}</b> · Desteklenmeyen: <b>{nosup}</b>
+        <span class="confidence-meta"> &nbsp;|&nbsp; Uzman tavsiyesi: <b>{advice}</b></span>
+        {extra}
+        </div>""",
+        unsafe_allow_html=True,
+    )
 
 # ---------------------------------------------------------------------------
 # Session state initialisation
@@ -529,6 +573,8 @@ with tabs[3]:
     # --- Process Map ---
     pm = st.session_state.get("process_map")
     pm_items = pm.get("steps", []) if pm and "hata" not in pm else []
+    if pm and "hata" not in pm:
+        _render_confidence_banner(pm)
     t, a, r = render_approval_section(
         "process_map",
         "🗺️ Süreç Haritası Adımları",
@@ -551,6 +597,8 @@ with tabs[3]:
     # --- Error Cards ---
     ec = st.session_state.get("error_cards")
     ec_items = ec.get("hata_kartlari", []) if ec and "hata" not in ec else []
+    if ec and "hata" not in ec:
+        _render_confidence_banner(ec)
     t, a, r = render_approval_section(
         "error_cards",
         "⚠️ Hata Kartları",
@@ -572,6 +620,8 @@ with tabs[3]:
     # --- Glossary ---
     gl = st.session_state.get("glossary")
     gl_items = gl.get("terimler", []) if gl and "hata" not in gl else []
+    if gl and "hata" not in gl:
+        _render_confidence_banner(gl)
     t, a, r = render_approval_section(
         "glossary",
         "📖 Terim Sözlüğü",
@@ -591,6 +641,8 @@ with tabs[3]:
     # --- Simulation ---
     sim = st.session_state.get("simulation")
     sim_items = [sim] if sim and "hata" not in sim else []
+    if sim and "hata" not in sim:
+        _render_confidence_banner(sim)
     t, a, r = render_approval_section(
         "simulation",
         "🎮 Simülasyon Senaryosu",

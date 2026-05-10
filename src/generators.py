@@ -133,10 +133,23 @@ def _build_grounded_prompt(
 ) -> tuple[str, str, list[str]]:
     """
     Sorgu için bağlam çek ve grounded prompt'u kompoze et.
+    Backward-compat: 3-tuple döndürür (system, user, chunk_indices).
 
-    Yetersiz bağlam koruması: eşik altında çok az parça döndüyse, retrieval
-    daha geniş eşikle yeniden çalıştırılır. Bu, ince bağlam durumlarını
-    görünür kılar (sessizce halüsinasyona kaymaz).
+    Confidence scoring için tam chunk listesi gerekenler
+    `_build_grounded_prompt_with_chunks` kullanmalı.
+    """
+    system, user, indices, _ = _build_grounded_prompt_with_chunks(query, extra_instruction, top_k)
+    return system, user, indices
+
+
+def _build_grounded_prompt_with_chunks(
+    query: str,
+    extra_instruction: str,
+    top_k: int = 7,
+) -> tuple[str, str, list[str], list[dict]]:
+    """
+    `_build_grounded_prompt` ile aynıdır, ek olarak retrieve edilen tam chunk
+    listesini de döner — Phase 2.2 confidence scoring bunu kullanır.
     """
     chunks = retrieve_context(query, top_k=top_k)
     if len(chunks) < _MIN_CONTEXT_CHUNKS:
@@ -155,12 +168,37 @@ def _build_grounded_prompt(
         context_text=context_text,
         chunk_indices=chunk_indices,
     )
-    return system_instruction, extra_instruction, chunk_indices
+    return system_instruction, extra_instruction, chunk_indices, chunks
 
 
 # ---------------------------------------------------------------------------
 # MOCK fixtures
 # ---------------------------------------------------------------------------
+
+_MOCK_CONFIDENCE_HIGH = {
+    "guven_skoru": 0.91,
+    "desteklenen_iddialar": 14,
+    "desteklenmeyen_iddialar": 1,
+    "desteklenmeyen_liste": ["Ay başında kadro değişikliklerinin sisteme işlenme zorunluluğu mevzuat dışı."],
+    "uzman_onay_tavsiyesi": "hizli_inceleme",
+    "rozet_renk": "green",
+    "rozet_metin": "Yüksek Güven",
+    "hata": False,
+}
+
+_MOCK_CONFIDENCE_MED = {
+    "guven_skoru": 0.74,
+    "desteklenen_iddialar": 8,
+    "desteklenmeyen_iddialar": 3,
+    "desteklenmeyen_liste": [
+        "Tespit yöntemi olarak 'denetim' ifadesi mevzuatta yer almamaktadır.",
+        "Belirli yasal yaptırımlar belge dışı.",
+    ],
+    "uzman_onay_tavsiyesi": "detayli_inceleme",
+    "rozet_renk": "yellow",
+    "rozet_metin": "Orta Güven — İncele",
+    "hata": False,
+}
 
 _MOCK_PROCESS_MAP = {
     "steps": [
@@ -286,13 +324,20 @@ def _structured_generate(
     instruction: str,
     schema: type[BaseModel],
     top_k: int,
+    content_type: str,
 ) -> dict:
     """
     Grounded sistem talimatı + verilen şema ile tek LLM çağrısı yapar.
     JSON metnini parse edip dict olarak döndürür; başarısız olursa
     {"hata": ..., "ham_cikti": ...} döndürür.
+
+    Phase 2.2: ENABLE_CONFIDENCE_SCORING true ise, üretilen içeriğe
+    `_confidence` alanı eklenir — kaynak chunk'lara karşı ikinci-geçiş
+    güven skoru.
     """
-    system, user_prompt, chunk_indices = _build_grounded_prompt(query, instruction, top_k=top_k)
+    system, user_prompt, chunk_indices, chunks = _build_grounded_prompt_with_chunks(
+        query, instruction, top_k=top_k,
+    )
     logger.info("Yapılandırılmış üretim: chunk_count=%d", len(chunk_indices))
     raw = llm_generate(
         prompt=user_prompt,
@@ -300,10 +345,21 @@ def _structured_generate(
         response_format=schema,
     )
     try:
-        return json.loads(raw)
+        result = json.loads(raw)
     except json.JSONDecodeError as exc:
         logger.error("JSON parse hatası: %s", exc)
         return {"hata": str(exc), "ham_cikti": raw}
+
+    # Phase 2.2 — güven skoru
+    if settings.ENABLE_CONFIDENCE_SCORING:
+        from src.confidence import score_generated_content
+        try:
+            score = score_generated_content(result, chunks, content_type)
+            result["_confidence"] = score
+        except Exception as exc:
+            logger.warning("Confidence skorlaması atlandı: %s", exc)
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -314,7 +370,7 @@ def generate_process_map() -> dict:
     """Maaş mutemetliği süreç haritasını grounded biçimde üretir."""
     if settings.MOCK_MODE:
         logger.info("MOCK_MODE: süreç haritası fixture döndürülüyor.")
-        return _MOCK_PROCESS_MAP
+        return {**_MOCK_PROCESS_MAP, "_confidence": _MOCK_CONFIDENCE_HIGH}
 
     opt = _load_optimized_prompt("process_map")
     query = opt["query"] if opt else "maaş hesaplama adımları süreç akışı prosedür"
@@ -329,6 +385,7 @@ def generate_process_map() -> dict:
             instruction=instruction,
             schema=ProcessMapSchema,
             top_k=8,
+            content_type="process_map",
         )
     except Exception as exc:
         logger.error("Süreç haritası üretim hatası: %s", exc)
@@ -339,7 +396,7 @@ def generate_error_cards() -> dict:
     """Yaygın hatalar üzerine 'hata kartları' üretir."""
     if settings.MOCK_MODE:
         logger.info("MOCK_MODE: hata kartları fixture döndürülüyor.")
-        return _MOCK_ERROR_CARDS
+        return {**_MOCK_ERROR_CARDS, "_confidence": _MOCK_CONFIDENCE_MED}
 
     opt = _load_optimized_prompt("error_cards")
     query = opt["query"] if opt else "sık yapılan hatalar yanlış uygulama kaçırılan adım"
@@ -354,6 +411,7 @@ def generate_error_cards() -> dict:
             instruction=instruction,
             schema=ErrorCardsSchema,
             top_k=8,
+            content_type="error_cards",
         )
     except Exception as exc:
         logger.error("Hata kartları üretim hatası: %s", exc)
@@ -364,7 +422,7 @@ def generate_glossary() -> dict:
     """Alan terimleri sözlüğünü üretir."""
     if settings.MOCK_MODE:
         logger.info("MOCK_MODE: terim sözlüğü fixture döndürülüyor.")
-        return _MOCK_GLOSSARY
+        return {**_MOCK_GLOSSARY, "_confidence": _MOCK_CONFIDENCE_HIGH}
 
     opt = _load_optimized_prompt("glossary")
     query = opt["query"] if opt else "kuruma özgü terimler teknik kavramlar kısaltmalar"
@@ -379,6 +437,7 @@ def generate_glossary() -> dict:
             instruction=instruction,
             schema=GlossarySchema,
             top_k=8,
+            content_type="glossary",
         )
     except Exception as exc:
         logger.error("Terim sözlüğü üretim hatası: %s", exc)
@@ -389,7 +448,7 @@ def generate_simulation_scenario() -> dict:
     """Etkileşimli karar simülasyon senaryosu üretir."""
     if settings.MOCK_MODE:
         logger.info("MOCK_MODE: simülasyon fixture döndürülüyor.")
-        return _MOCK_SIMULATION
+        return {**_MOCK_SIMULATION, "_confidence": _MOCK_CONFIDENCE_MED}
 
     opt = _load_optimized_prompt("simulation")
     query = opt["query"] if opt else "kritik karar noktası yüksek hata riski zor durum"
@@ -405,6 +464,7 @@ def generate_simulation_scenario() -> dict:
             instruction=instruction,
             schema=SimulationSchema,
             top_k=7,
+            content_type="simulation",
         )
     except Exception as exc:
         logger.error("Simülasyon üretim hatası: %s", exc)
