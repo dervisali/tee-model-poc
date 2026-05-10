@@ -2,7 +2,7 @@
 Üretici fonksiyonların MOCK_MODE altında çalıştığını ve şema-uyumlu çıktı
 döndürdüğünü test eder.
 
-MOCK_MODE=true'da hiçbir Ollama çağrısı yapılmaz; sabit fixture döner.
+MOCK_MODE=true'da hiçbir Vertex AI çağrısı yapılmaz; sabit fixture döner.
 Bu testler 'pip install requirements' yapılmadan da geçer (yalnızca
 src.generators ve onun bağımlılıklarını içerir; ağır LLM yolu çalışmaz).
 """

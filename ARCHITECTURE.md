@@ -1,5 +1,10 @@
 # TEE-Model POC (Maaş Mutemedi Eğitim Sistemi) - Architecture & Context
 
+> Cloud branch note: `feature/cloud-vertex-rag-v2` runs on Vertex AI
+> `gemini-2.5-flash` for generation and `gemini-embedding-001` for
+> embeddings. `README.md`, `src/config.py`, `src/llm.py`, and
+> `src/embeddings.py` are the source of truth for deployed settings.
+
 ## 🎯 Project Purpose
 The **TEE-Model POC** is a Retrieval-Augmented Generation (RAG) system designed to onboard and train public institution payroll officers (Maaş Mutemedi). It tackles the critical issue of knowledge loss by bridging two types of information:
 1. **Explicit Knowledge:** Formal regulations, laws, and official procedures (Mevzuat).
@@ -11,7 +16,7 @@ By combining these, the system acts as an expert assistant to prevent costly pay
 
 ## 🏗️ Core Architecture & Tech Stack
 - **Frontend:** [Streamlit](https://streamlit.io/) (`app.py`), providing an interactive, multi-tab web interface.
-- **LLM Engine:** Google Cloud Gemini API (`gemini-3-flash-preview`), utilized via the modern `google-genai` SDK.
+- **LLM Engine:** Vertex AI Gemini (`gemini-2.5-flash`), utilized via the modern `google-genai` SDK.
 - **Vector Storage:** Local [ChromaDB](https://www.trychroma.com/) (`chroma_db/`).
 - **Deployment:** Containerized via Docker and hosted serverless on **Google Cloud Run**.
 

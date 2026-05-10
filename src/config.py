@@ -12,6 +12,7 @@ Kullanım:
 """
 
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -34,10 +35,8 @@ class Settings(BaseSettings):
         default="gemini-embedding-001",
         description="Vertex AI text embedding modeli (varsayılan 3072 boyut).",
     )
-    EMBEDDING_DIMENSION: int = Field(
+    EMBEDDING_DIMENSION: Literal[768, 1536, 3072] = Field(
         default=3072,
-        ge=128,
-        le=3072,
         description="gemini-embedding-001 output_dimensionality değeri.",
     )
     GOOGLE_CLOUD_PROJECT: str | None = Field(

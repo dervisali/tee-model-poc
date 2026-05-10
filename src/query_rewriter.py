@@ -8,8 +8,8 @@ ama leksikal olarak farklı) varyant üretir; retrieval her varyant için
 göre yeniden sıralanır.
 
 Bu mission Phase 1.4 spec'ine göre default OFF; ENABLE_QUERY_REWRITING=true
-yapıldığında devreye girer. gemma3:4b ile her çağrı ~5-15s sürdüğünden,
-yalnızca kalite kritik üretim görevlerinde tercih edilmelidir.
+yapıldığında devreye girer. Vertex AI çağrıları maliyet ve gecikme eklediği
+için yalnızca kalite kritik üretim görevlerinde tercih edilmelidir.
 """
 
 from __future__ import annotations

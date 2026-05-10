@@ -1,8 +1,15 @@
 # TEE-Model — Mimari ve Teknik Tasarım Belgesi
 
-> **Sürüm:** production-rag-v2 · **Tarih:** 2026-05-10  
+> **Sürüm:** cloud-vertex-rag-v2 · **Tarih:** 2026-05-10  
 > **Hedef:** TÜBİTAK 1001/1003 araştırma desteği için akademik nitelikte
 > teknik rapor temeli.
+
+> **Cloud branch notu:** Bu belge ilk olarak `feature/production-rag-v2`
+> yerel Ollama/e5 yığını için yazılmıştır. `feature/cloud-vertex-rag-v2`
+> branch'i aynı RAG tasarımını korur, ancak inferans ve embedding katmanını
+> Vertex AI `gemini-2.5-flash` + `gemini-embedding-001` ile değiştirir.
+> Güncel production ayarları için `README.md`, `src/config.py`,
+> `src/llm.py` ve `src/embeddings.py` esas alınmalıdır.
 
 Bu belge, Tacit-Explicit Entegre Eğitim (TEE) modelinin RAG mimarisini,
 her büyük tasarım kararının gerekçesini ve değerlendirme sonuçlarını

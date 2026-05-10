@@ -4,15 +4,14 @@ TEE-Model ingestion boru hattı — Parent Document Retrieval (PDR) baskısı.
 İki seviyeli chunklama:
   - Parent (üst) parçaları (300-800 karakter): chroma_db/parents.json içine
     yazılır; LLM bağlamı olarak kullanılır.
-  - Child (alt) parçaları (50-200 karakter): multilingual-e5-large ile gömülür
+  - Child (alt) parçaları (50-200 karakter): gemini-embedding-001 ile gömülür
     ve ChromaDB 'tee_children' koleksiyonuna yazılır.
 
 Her child kaydı, parent_id geri-referansı taşır. Retrieval, child seviyesinde
 arama yapar; LLM'e ise parent metni gönderilir (daha geniş bağlam, daha iyi
 yanıt).
 
-Bu modül artık Google Gemini API'sine bağlı değildir; tamamen yerel
-sentence-transformers gömme modeli üzerinden çalışır.
+Bu cloud branch'te gömme adımı Vertex AI Gemini embedding API üzerinden çalışır.
 """
 
 from __future__ import annotations
@@ -313,8 +312,8 @@ def run_ingestion(chunking_strategy: str | None = None) -> dict:
       2. Her parent'ı child'lara böl.
       3. Tüm child'ları toplu olarak (batch) gömele ve ChromaDB'ye yaz.
 
-    Yerel e5-large modeli kullanıldığı için gömme adımı toplu yürütülür;
-    eski Gemini kodundaki sleep(1) rate-limit gecikmesi tamamen kaldırılmıştır.
+    Vertex AI embedding modeli kullanıldığı için gömme adımı toplu yürütülür;
+    eski rate-limit sleep gecikmesi kaldırılmıştır.
 
     chunking_strategy: "paragraph" | "semantic" | "fixed".
       None ise settings.CHUNKING_STRATEGY (varsayılan "paragraph") kullanılır.

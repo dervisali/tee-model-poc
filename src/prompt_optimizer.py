@@ -6,9 +6,8 @@ Karpathy autoresearch projesinden esinlenmiştir:
   Burada      : sorgu + talimat değiştir → içerik üret → LLM hakemiyle puanla
                  → en iyiyi optimized_prompts.json'a sakla
 
-Migrasyon notu: Önceki Gemini API çağrıları, src.llm.generate üzerinden Ollama
-gemma3:4b'a yönlendirildi. Hakem (judge) prompt'u aynen korundu — değerlendirme
-mantığı modele agnostiktir.
+Cloud branch notu: Tüm model çağrıları `src.llm.generate` üzerinden Vertex AI
+Gemini'ye yönlendirilir. Hakem (judge) prompt'u modele agnostiktir.
 """
 
 from __future__ import annotations

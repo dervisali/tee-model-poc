@@ -19,7 +19,7 @@ chroma_db/                  Yerel vektör veritabanı (3072 boyut, Gemini embedd
 app.py                      Streamlit UI (6 sekme)
 ```
 
-## Kurulum (yerel)
+## Kurulum
 
 1. **Google Cloud kimliğini hazırla**:
    ```bash
@@ -52,7 +52,13 @@ app.py                      Streamlit UI (6 sekme)
 docker compose up
 ```
 
-`docker-compose.yml` yalnızca Streamlit uygulamasını ayağa kaldırır; model çağrıları Vertex AI'a gider. Cloud Run'da servis hesabına Vertex AI User yetkisi verilmelidir.
+`docker-compose.yml` yalnızca Streamlit uygulamasını ayağa kaldırır; model çağrıları Vertex AI'a gider. Yerelde uygulama `http://localhost:8080` adresinden açılır. Cloud Run'da servis hesabına Vertex AI User yetkisi verilmelidir.
+
+## Cloud Run Notları
+
+Cloud Run dosya sistemi kalıcı değildir. Bu uygulama `chroma_db/` dizinini imajın içinde veya instance dosya sisteminde kullanır; bu nedenle production dağıtımında ya veritabanını imaj build sürecinde oluşturun ya da kalıcı bir vektör depoya geçin. Instance cold start sonrası boş DB ile açılırsa UI önce "Veritabanını Yenile" adımını ister.
+
+`CHUNKING_STRATEGY=semantic` her cümleyi Vertex AI embedding çağrılarıyla işler; maliyet ve gecikme açısından varsayılan `paragraph` stratejisi production için daha güvenlidir.
 
 ## Mock modu
 
@@ -81,7 +87,7 @@ Tam liste için `src/config.py`. En kritikler:
 | `GOOGLE_CLOUD_LOCATION` | `us-central1` | Vertex AI bölgesi |
 | `GENERATION_MODEL` | `gemini-2.5-flash` | Üretim modeli |
 | `EMBEDDING_MODEL` | `gemini-embedding-001` | Cloud gömme modeli |
-| `EMBEDDING_DIMENSION` | `3072` | Gömme boyutu |
+| `EMBEDDING_DIMENSION` | `3072` | Gömme boyutu (`768`, `1536`, `3072`) |
 | `MOCK_MODE` | `false` | API çağrısı yapmadan fixture döndür |
 | `ENABLE_HYBRID_SEARCH` | `true` | BM25 + dense füzyon |
 | `ENABLE_CONTEXTUAL_ENRICHMENT` | `true` | Anthropic 2024 contextual retrieval |

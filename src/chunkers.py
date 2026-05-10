@@ -7,7 +7,7 @@ parametresi (varsayılan settings.CHUNKING_STRATEGY) ile seçer:
   - "paragraph"  : çift yeni satır + cümle bazlı dönüş; mevcut (varsayılan)
                    davranış. Türkçe regülatör belgesi gibi MADDE odaklı
                    metinlerde sağlam çalışır.
-  - "semantic"   : sentence-transformers ile cümle gömeleri; bitişik
+  - "semantic"   : Vertex AI embedding ile cümle gömeleri; bitişik
                    cümle benzerliği SEMANTIC_SIM_THRESHOLD altına düşünce
                    yeni chunk başlar. Anlamsal sınırları yakalar; küçük
                    topluluklarda paragraph'a kıyasla farklı sonuçlar verir.
@@ -103,7 +103,7 @@ def semantic_parent_chunks(text: str) -> list[str]:
     if len(sentences) <= 1:
         return [text.strip()] if text.strip() else []
 
-    # Geç import — embeddings modülü ağır (torch + e5).
+    # Geç import — semantic strateji canlı Vertex AI embedding çağrısı yapar.
     from src.embeddings import embed_passages, cosine_similarity
 
     threshold = settings.SEMANTIC_SIM_THRESHOLD

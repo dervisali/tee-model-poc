@@ -1,11 +1,4 @@
-"""
-pytest yardımcıları — tüm test dosyaları için ortak fixture'lar.
-
-Ağır bağımlılıklar (torch, sentence-transformers, ollama, chromadb) yüklü
-değilse, ilgili testler `requires_heavy_deps` marker'ı üzerinden atlanır.
-MOCK_MODE=true ile çalıştırıldığında üretici testleri Ollama'ya hiç
-dokunmaz; bu, mission Phase 4 başarı kriterine uygundur.
-"""
+"""pytest yardımcıları — tüm test dosyaları için ortak fixture'lar."""
 
 from __future__ import annotations
 
@@ -35,33 +28,28 @@ def _have(module_name: str) -> bool:
         return False
 
 
-HAS_TORCH = _have("torch")
-HAS_SENTENCE_TRANSFORMERS = _have("sentence_transformers")
 HAS_CHROMADB = _have("chromadb")
-HAS_OLLAMA_PY = _have("ollama")
+HAS_GOOGLE_GENAI = _have("google.genai")
 HAS_RANK_BM25 = _have("rank_bm25")
+RUN_VERTEX_TESTS = os.getenv("RUN_VERTEX_TESTS", "false").lower() == "true"
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    config.addinivalue_line("markers", "requires_torch: torch + sentence-transformers gerektirir.")
+    config.addinivalue_line("markers", "requires_vertex_embeddings: canlı Vertex AI embedding çağrısı gerektirir.")
     config.addinivalue_line("markers", "requires_chromadb: chromadb gerektirir.")
-    config.addinivalue_line("markers", "requires_ollama_lib: ollama python paketi gerektirir.")
     config.addinivalue_line("markers", "requires_bm25: rank_bm25 gerektirir.")
     config.addinivalue_line("markers", "integration: Tam yığını gerektiren entegrasyon testi.")
 
 
 def pytest_collection_modifyitems(config, items):
-    skip_torch = pytest.mark.skip(reason="torch / sentence-transformers yüklü değil")
+    skip_vertex = pytest.mark.skip(reason="canlı Vertex AI testleri kapalı veya google-genai yüklü değil")
     skip_chroma = pytest.mark.skip(reason="chromadb yüklü değil")
-    skip_ollama = pytest.mark.skip(reason="ollama python paketi yüklü değil")
     skip_bm25 = pytest.mark.skip(reason="rank_bm25 yüklü değil")
 
     for item in items:
-        if "requires_torch" in item.keywords and not (HAS_TORCH and HAS_SENTENCE_TRANSFORMERS):
-            item.add_marker(skip_torch)
+        if "requires_vertex_embeddings" in item.keywords and not (RUN_VERTEX_TESTS and HAS_GOOGLE_GENAI):
+            item.add_marker(skip_vertex)
         if "requires_chromadb" in item.keywords and not HAS_CHROMADB:
             item.add_marker(skip_chroma)
-        if "requires_ollama_lib" in item.keywords and not HAS_OLLAMA_PY:
-            item.add_marker(skip_ollama)
         if "requires_bm25" in item.keywords and not HAS_RANK_BM25:
             item.add_marker(skip_bm25)

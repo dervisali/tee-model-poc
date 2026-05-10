@@ -9,6 +9,7 @@ pandas>=2.0
 
 # Cloud inference stack (Vertex AI Gemini)
 google-genai>=1.0
+google-api-core>=2.19
 
 # Vector store
 chromadb>=0.5

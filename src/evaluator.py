@@ -8,9 +8,8 @@ için dört temel ölçüt sunar:
   - context_precision   : alınan bağlam parçaları alakalı mı?
   - context_recall      : alınan bağlam, ideal cevabı içeriyor mu?
 
-Tüm ölçütler bir LLM-yargıcı kullanır. Burada hem yargıç hem de RAGAS'ın
-kendi gömme adımı yerel Ollama + multilingual-e5-large yığınına yönlendirilir;
-sistem hiçbir dış API'ye dokunmadan değerlendirilir.
+Tüm ölçütler bir LLM-yargıcı kullanır. Bu cloud branch'te hem yargıç hem de
+RAGAS'ın kendi gömme adımı Vertex AI Gemini modellerine yönlendirilir.
 
 Kullanım:
     python -m src.evaluator              # 20 sorulu test setini çalıştır
@@ -96,6 +95,9 @@ def _build_ragas_clients():
         location=settings.GOOGLE_CLOUD_LOCATION,
         temperature=0.0,  # yargıç çağrılarında deterministik istiyoruz
     )
+    # LangChain'in VertexAIEmbeddings sarmalayıcısı RAGAS metrikleri için
+    # kullanılır. Uygulama retrieval yolu ise `src.embeddings` içinde
+    # task_type ve output_dimensionality değerlerini açıkça verir.
     vertex_embeddings = VertexAIEmbeddings(
         model_name=settings.EMBEDDING_MODEL,
         project=settings.GOOGLE_CLOUD_PROJECT,
@@ -119,7 +121,7 @@ def evaluate_rag_pipeline(
 
     Adımlar:
       1. Her soru için RAG cevabı üret + retrieved context kaydet.
-      2. RAGAS metriklerini Ollama yargıç ile uygula.
+      2. RAGAS metriklerini Vertex AI Gemini yargıç ile uygula.
       3. Sonuç sözlüğü ve özet metrikleri döndür; isteğe bağlı diske yaz.
 
     Döner
@@ -174,7 +176,7 @@ def evaluate_rag_pipeline(
         LLMContextRecall(),
     ]
 
-    logger.info("RAGAS metrikleri hesaplanıyor (LLM yargıç + e5 gömme)...")
+    logger.info("RAGAS metrikleri hesaplanıyor (Vertex AI yargıç + embedding)...")
     result = evaluate(
         dataset=dataset,
         metrics=metrics,

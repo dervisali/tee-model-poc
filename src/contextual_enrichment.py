@@ -9,9 +9,9 @@ yalnızca eklenen metin gömme + BM25 yoluna girer. Orijinal chunk metadata'da
 Anthropic'in Eylül 2024 raporunda contextual embeddings + contextual BM25
 birleşimi, top-20 retrieval başarısızlığını %5.7 → %2.9'a düşürdü (-%49).
 
-Maliyet: gemma3:4b ile chunk başına ~5-10 saniye (CPU/MPS). Önbellek
+Maliyet: her cache miss bir Vertex AI üretim çağrısıdır. Önbellek
 (SHA1 hash → enriched_text) yeniden ingestion'da tekrar çağrı yapılmasını
-engeller; veri seti değişmediği sürece tek seferlik ücrettir.
+engeller; veri seti değişmediği sürece tek seferlik maliyettir.
 """
 
 from __future__ import annotations

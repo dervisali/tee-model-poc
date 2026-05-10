@@ -1,7 +1,7 @@
 """
 Entegrasyon testi — MOCK_MODE altında uçtan uca çıktı tutarlılığı.
 
-Tam stack çalıştırılmaz (Ollama'ya hiç bağlanmaz); MOCK fixture'ler ile
+Tam stack çalıştırılmaz (Vertex AI'a hiç bağlanmaz); MOCK fixture'ler ile
 generators katmanı, app session_state'ine yerleştirilebilir uyumlu çıktılar
 üretiyor mu — kontratı doğrular.
 """

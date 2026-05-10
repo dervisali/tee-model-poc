@@ -2,7 +2,7 @@
 TEE-Model retrieval katmanı — Parent Document Retrieval (PDR).
 
 Akış:
-  1. Sorgu, multilingual-e5-large ile gömülür ('query:' öneki ile).
+  1. Sorgu, Vertex AI `gemini-embedding-001` ile gömülür.
   2. tee_children koleksiyonunda en yakın top_k*3 child aranır (over-fetch).
   3. Mesafe eşiğinin altındakiler, parent_id bazında deduplicate edilir
      (her parent için en yakın child saklanır).

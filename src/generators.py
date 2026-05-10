@@ -1,15 +1,14 @@
 """
-TEE-Model içerik üreticileri — Ollama gemma3:4b üzerinde grounded üretim.
+TEE-Model içerik üreticileri — Vertex AI Gemini üzerinde grounded üretim.
 
 Tüm üreticiler kesin biçimde dayandırılmıştır (grounded): LLM'e yalnızca
 retrieve edilen parent parçaları gönderilir; sistemin "BAĞLAM dışında bilgi
 üretme" talimatı her çağrıda zorunludur.
 
-Çıktılar Pydantic şemaları ile sınırlandırılır; Ollama'nın `format=`
-yapılandırılmış JSON modu, modelin şemaya uyumlu JSON üretmesini garanti eder.
-Önceki Gemini `response_schema` davranışı bire bir karşılanır.
+Çıktılar Pydantic şemaları ile sınırlandırılır; Gemini `response_schema`
+modu modelin şemaya uyumlu JSON üretmesini hedefler.
 
-MOCK_MODE açıkken hiçbir yerel veya uzak servise dokunulmaz; sabit fixture
+MOCK_MODE açıkken hiçbir cloud servisine dokunulmaz; sabit fixture
 çıktıları döner. Bu, hem CI ortamlarında hem de Streamlit UI testinde gerekli.
 """
 

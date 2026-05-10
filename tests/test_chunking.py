@@ -2,7 +2,7 @@
 Üç chunklama stratejisi için birim testleri.
 
 paragraph + fixed: ağır bağımlılıksız çalışır (saf string işleme).
-semantic: sentence-transformers gerektirir; yüklü değilse atlanır.
+semantic: canlı Vertex AI embedding çağrısı gerektirir; varsayılan koşuda atlanır.
 """
 
 from __future__ import annotations
@@ -85,9 +85,9 @@ class TestStrategyDispatcher:
             get_parent_chunker("nonsense")
 
 
-@pytest.mark.requires_torch
+@pytest.mark.requires_vertex_embeddings
 class TestSemanticChunker:
-    """Anlamsal sınır chunklayıcı — torch + sentence-transformers gerekir."""
+    """Anlamsal sınır chunklayıcı — Vertex AI embedding credentials gerekir."""
 
     def test_iki_konu_iki_chunk_uretmeli(self):
         """

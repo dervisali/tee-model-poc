@@ -9,7 +9,7 @@ gemini-embedding-001 modeli, Google Gen AI SDK üzerinden Vertex AI'da
 - Sorgu gömerken task_type="RETRIEVAL_QUERY" kullanılır.
 
 Karar gerekçesi:
-- Cloud Run üzerinde torch / sentence-transformers yükü taşınmaz.
+- Cloud Run üzerinde ağır yerel embedding runtime yükü taşınmaz.
 - gemini-embedding-001, Türkçe dahil çok dilli retrieval için Google'ın
   en yüksek kaliteli cloud embedding modelidir.
 """
@@ -17,9 +17,13 @@ Karar gerekçesi:
 from __future__ import annotations
 
 import logging
+import math
 from functools import lru_cache
 
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
+
 from src.config import settings
+from src.llm import _is_retryable_exception
 
 
 logger = logging.getLogger(__name__)
@@ -37,6 +41,24 @@ def get_embedding_client():
     return get_vertex_client()
 
 
+def _l2_normalize(vector: list[float]) -> list[float]:
+    """Cosine retrieval için vektörü birim norma taşır."""
+    norm = math.sqrt(sum(x * x for x in vector))
+    if norm <= 1e-12:
+        return vector
+    return [x / norm for x in vector]
+
+
+@retry(
+    stop=stop_after_attempt(settings.LLM_MAX_RETRIES),
+    wait=wait_exponential(
+        multiplier=1,
+        min=settings.LLM_RETRY_MIN_WAIT,
+        max=settings.LLM_RETRY_MAX_WAIT,
+    ),
+    retry=retry_if_exception(_is_retryable_exception),
+    reraise=True,
+)
 def _embed(texts: list[str], *, task_type: str) -> list[list[float]]:
     """Google Gen AI SDK ile metinleri gömer."""
     if not texts:
@@ -52,7 +74,7 @@ def _embed(texts: list[str], *, task_type: str) -> list[list[float]]:
             output_dimensionality=settings.EMBEDDING_DIMENSION,
         ),
     )
-    vectors = [embedding.values for embedding in response.embeddings]
+    vectors = [_l2_normalize(list(embedding.values)) for embedding in response.embeddings]
     logger.info(
         "Embedding tamamlandı",
         extra={

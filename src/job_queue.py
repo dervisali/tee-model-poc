@@ -1,9 +1,10 @@
 """
 Üretim isteklerini seri sıraya koyan tek-işçili kuyruk (Phase 3.1).
 
-Streamlit, paralel kullanıcı tıklamalarında üretici fonksiyonları aynı anda
-çağırırsa Ollama bunları sıraya alamaz; tek-modelli yerel sunucu pratiğinde
-genelde kuyrukta birikme sessizce bağlantı zaman aşımına döner.
+Vertex AI paralel çağrıları kaldırabilir; burada kuyruk bilinçli olarak
+maliyet/kota kontrolü ve kullanıcı arayüzünde tek bir uzun üretim işinin
+izlenebilir olması için korunur. Daha yüksek eşzamanlılık gerektiğinde
+`max_workers` artırılabilir veya kuyruk tamamen kaldırılabilir.
 
 Bu modül:
   - `concurrent.futures.ThreadPoolExecutor(max_workers=1)` ile tek bir
@@ -12,9 +13,9 @@ Bu modül:
   - `get_status(job_id) -> {"status": queued|running|done|error, "result": ...}`
   - `wait_for_job(job_id, timeout)` — Streamlit spinner içinde polling.
 
-Kalıcılık YOK: kuyruk süreç ömrü boyunca yaşar. Birden fazla Streamlit
-worker'ı varsa (gunicorn vb.), kuyruk uygulamadan ayrılmalıdır; POC'de tek
-süreçli streamlit run yeterli.
+Kalıcılık YOK: kuyruk süreç ömrü boyunca yaşar. Cloud Run instance scale-to-zero
+olursa bekleyen işler kaybolur; bu nedenle uzun süreli arka plan işleri için
+Cloud Tasks / Pub/Sub / Workflows gibi kalıcı bir kuyruk kullanılmalıdır.
 """
 
 from __future__ import annotations

@@ -8,7 +8,7 @@ loglamayı bir arada sağlar. Üretim, yargı ve enrichment çağrıları aynı 
 asenkron kuyruk, yeniden deneme) tek dosyada uygulanır.
 
 Karar gerekçesi:
-- Cloud Run üzerinde ayrı bir Ollama sunucusu yönetmeden Vertex AI Gemini
+- Cloud Run üzerinde ayrı bir model sunucusu yönetmeden Vertex AI Gemini
   kullanılabilir.
 - Google Gen AI SDK `response_schema` desteğiyle Pydantic şemaları üzerinden
   yapılandırılmış JSON çıktısı alınır.
@@ -25,7 +25,7 @@ from typing import Any
 from pydantic import BaseModel
 from tenacity import (
     retry,
-    retry_if_exception_type,
+    retry_if_exception,
     stop_after_attempt,
     wait_exponential,
 )
@@ -43,6 +43,8 @@ except ImportError:  # pragma: no cover
 
 
 logger = logging.getLogger(__name__)
+_health_cache: dict[str, float | bool] = {"checked_at": 0.0, "ok": False}
+_HEALTH_CACHE_TTL_SECONDS = 300.0
 
 
 # ---------------------------------------------------------------------------
@@ -75,14 +77,32 @@ def get_vertex_client():
 # Yardımcılar
 # ---------------------------------------------------------------------------
 
-def _schema_to_response_schema(schema: type[BaseModel] | dict | None) -> dict | None:
+def _is_retryable_exception(exc: BaseException) -> bool:
+    """Yalnızca geçici Vertex AI / ağ hatalarında yeniden dene."""
+    if isinstance(exc, (ConnectionError, TimeoutError)):
+        return True
+    try:
+        from google.api_core import exceptions as google_exceptions
+    except ImportError:  # pragma: no cover
+        return False
+    retryable = (
+        google_exceptions.ServiceUnavailable,
+        google_exceptions.ResourceExhausted,
+        google_exceptions.DeadlineExceeded,
+        google_exceptions.InternalServerError,
+        google_exceptions.TooManyRequests,
+    )
+    return isinstance(exc, retryable)
+
+
+def _schema_to_response_schema(schema: type[BaseModel] | dict | None) -> Any:
     """Pydantic modelini Gemini `response_schema` parametresine çevirir."""
     if schema is None:
         return None
     if isinstance(schema, dict):
         return schema
     if isinstance(schema, type) and issubclass(schema, BaseModel):
-        return schema.model_json_schema()
+        return schema
     raise TypeError(f"Beklenmeyen şema türü: {type(schema)!r}")
 
 
@@ -97,8 +117,7 @@ def _schema_to_response_schema(schema: type[BaseModel] | dict | None) -> dict | 
         min=settings.LLM_RETRY_MIN_WAIT,
         max=settings.LLM_RETRY_MAX_WAIT,
     ),
-    # ollama.ResponseError import sırasında erişilemiyor olabilir; geniş tut.
-    retry=retry_if_exception_type((ConnectionError, TimeoutError, Exception)),
+    retry=retry_if_exception(_is_retryable_exception),
     reraise=True,
 )
 def generate(
@@ -168,20 +187,16 @@ def generate(
 # ---------------------------------------------------------------------------
 
 def is_vertex_available() -> bool:
-    """Vertex AI Gemini erişilebilir mi?"""
+    """Vertex AI Gemini erişilebilir mi? Billable generation çağrısı yapmaz."""
+    now = time.time()
+    if now - float(_health_cache["checked_at"]) < _HEALTH_CACHE_TTL_SECONDS:
+        return bool(_health_cache["ok"])
     try:
         client = get_vertex_client()
-        response = client.models.generate_content(
-            model=settings.GENERATION_MODEL,
-            contents="ok",
-            config={"temperature": 0.0},
-        )
-        return bool(response.text)
+        next(client.models.list(config={"page_size": 1}), None)
+        _health_cache.update({"checked_at": now, "ok": True})
+        return True
     except Exception as exc:
+        _health_cache.update({"checked_at": now, "ok": False})
         logger.warning("Vertex AI erişilemedi: %s", exc)
         return False
-
-
-# Geriye uyumluluk: app/test importları kırılmasın.
-get_ollama_client = get_vertex_client
-is_ollama_available = is_vertex_available

@@ -108,7 +108,7 @@ def configure_logging(level: str | int = "INFO") -> None:
     root.addHandler(file_handler)
 
     # Üçüncü taraf gürültüsünü kıs
-    for noisy in ("httpx", "httpcore", "urllib3", "chromadb", "sentence_transformers"):
+    for noisy in ("httpx", "httpcore", "urllib3", "chromadb", "google"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
     _CONFIGURED = True
