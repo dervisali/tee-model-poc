@@ -150,8 +150,21 @@ def _build_grounded_prompt_with_chunks(
     """
     `_build_grounded_prompt` ile aynıdır, ek olarak retrieve edilen tam chunk
     listesini de döner — Phase 2.2 confidence scoring bunu kullanır.
+
+    Phase 1.4: ENABLE_QUERY_REWRITING true ise, retrieval çok-sorgulu
+    moda geçer (orijinal + 3 varyant); sonuçlar parent_id bazında
+    deduplicate edilip birleşik skora göre sıralanır.
     """
-    chunks = retrieve_context(query, top_k=top_k)
+    if settings.ENABLE_QUERY_REWRITING:
+        from src.query_rewriter import multi_query_retrieve
+        logger.info("Multi-query retrieval aktif (ENABLE_QUERY_REWRITING=true).")
+        result = multi_query_retrieve(query, top_k=top_k)
+        chunks = result["merged_results"]
+        if result["variants"]:
+            logger.info("Sorgu varyantları: %s", result["variants"])
+    else:
+        chunks = retrieve_context(query, top_k=top_k)
+
     if len(chunks) < _MIN_CONTEXT_CHUNKS:
         logger.warning(
             "Yetersiz bağlam: '%s' sorgusu için %d chunk; eşik genişletiliyor.",
