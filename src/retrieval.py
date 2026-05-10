@@ -1,49 +1,45 @@
 """
-Retrieval layer for TEE-Model POC — Parent Document Retrieval edition.
+TEE-Model retrieval katmanı — Parent Document Retrieval (PDR).
 
-Query flow:
-  1. Embed the user query with gemini-embedding-001
-  2. Search 'tee_children' collection for the top-k most similar child chunks
-  3. For each child hit, fetch its parent chunk from parents.json using parent_id
-  4. Deduplicate: multiple children sharing the same parent yield only one result
-  5. Return parent texts to generators — richer context than raw child chunks
+Akış:
+  1. Sorgu, multilingual-e5-large ile gömülür ('query:' öneki ile).
+  2. tee_children koleksiyonunda en yakın top_k*3 child aranır (over-fetch).
+  3. Mesafe eşiğinin altındakiler, parent_id bazında deduplicate edilir
+     (her parent için en yakın child saklanır).
+  4. Parent metinleri parents.json'dan çözülür ve LLM'e gönderilmek üzere
+     döndürülür.
+
+Phase 1.3: Hybrid search (BM25 + dense, RRF füzyonu) ayrı bir sarmalayıcı
+modülde uygulanır; bu modül yoğun (dense) yolu sağlar ve gerek duyuldukça
+oradan çağrılır.
 """
 
-import os
+from __future__ import annotations
+
 import json
 import logging
 from pathlib import Path
 
 import chromadb
-from dotenv import load_dotenv
-from google import genai
-from google.genai import types
 
-load_dotenv()
+from src.config import settings
+from src.embeddings import embed_query
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+
 logger = logging.getLogger(__name__)
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-CHROMA_DIR = BASE_DIR / "chroma_db"
+
+CHROMA_DIR = settings.CHROMA_DIR
 PARENTS_JSON = CHROMA_DIR / "parents.json"
-COLLECTION_NAME = "tee_children"
+COLLECTION_NAME = settings.CHILD_COLLECTION_NAME
 
 
 # ---------------------------------------------------------------------------
-# Internal helpers
+# Yardımcılar
 # ---------------------------------------------------------------------------
-
-def _get_genai_client() -> genai.Client:
-    api_key = os.getenv("GOOGLE_API_KEY")
-    if not api_key:
-        raise EnvironmentError(
-            "GOOGLE_API_KEY ortam değişkeni bulunamadı. Lütfen .env dosyasını kontrol edin."
-        )
-    return genai.Client(api_key=api_key)
-
 
 def _get_chroma_collection() -> chromadb.Collection:
+    """Aktif child koleksiyonunu döndürür."""
     client = chromadb.PersistentClient(path=str(CHROMA_DIR))
     return client.get_or_create_collection(
         name=COLLECTION_NAME,
@@ -52,89 +48,68 @@ def _get_chroma_collection() -> chromadb.Collection:
 
 
 def _load_parents() -> dict:
-    """Load the parent lookup table from parents.json."""
+    """parents.json dosyasını yükler."""
     if PARENTS_JSON.exists():
         return json.loads(PARENTS_JSON.read_text(encoding="utf-8"))
     return {}
 
 
-def _embed_query(client: genai.Client, query: str) -> list[float]:
-    try:
-        response = client.models.embed_content(
-            model="gemini-embedding-001",
-            contents=query,
-            config=types.EmbedContentConfig(task_type="RETRIEVAL_QUERY"),
-        )
-        return response.embeddings[0].values
-    except Exception as exc:
-        raise RuntimeError(f"Sorgu embedding hatası: {exc}") from exc
+def _embed_query(query: str) -> list[float]:
+    """Eski API ile uyumluluk takma adı (testler bunu import edebilir)."""
+    return embed_query(query)
 
 
 # ---------------------------------------------------------------------------
-# Public API
+# Genel API
 # ---------------------------------------------------------------------------
 
 def retrieve_context(
     query: str,
-    top_k: int = 5,
-    source_filter: str = None,
-    distance_threshold: float = 0.7,
+    top_k: int | None = None,
+    source_filter: str | None = None,
+    distance_threshold: float | None = None,
 ) -> list[dict]:
     """
-    Retrieve the most relevant parent chunks for a query using PDR.
+    Sorgu için en alakalı parent parçalarını PDR ile döndürür.
 
-    Steps:
-      1. Embed query and search tee_children for top_k*2 candidates
-         (over-fetch before dedup)
-      2. Filter by distance_threshold
-      3. For each child hit, look up the corresponding parent in parents.json
-      4. Deduplicate: keep the closest child per unique parent_id
-      5. Return up to top_k parent-level results
-
-    Parameters
-    ----------
+    Parametreler
+    -----------
     query : str
-        Natural-language query (Turkish).
-    top_k : int
-        Maximum number of deduplicated parent results to return.
-    source_filter : str or None
-        Restrict to "explicit", "tacit", or None for both.
-    distance_threshold : float
-        Maximum cosine distance for a child chunk to qualify.
+        Doğal dil sorgusu (Türkçe).
+    top_k : int | None
+        Dedupe sonrası dönecek parent sayısı; None ise settings.RETRIEVAL_TOP_K.
+    source_filter : str | None
+        "explicit", "tacit" veya None (her ikisi).
+    distance_threshold : float | None
+        Bir child'ın eşleşmiş sayılması için maksimum kosinüs mesafesi;
+        None ise settings.RETRIEVAL_DISTANCE_THRESHOLD.
 
-    Returns
-    -------
-    list[dict]
-        Each item contains:
-            "child_text"  — the small chunk that matched the query
-            "parent_text" — the larger context chunk sent to the LLM
-            "text"        — alias for parent_text (backward compat)
-            "source"      — "explicit" or "tacit"
-            "filename"    — source file name
-            "parent_id"   — parent chunk identifier
-            "child_index" — position of child within its parent
-            "distance"    — cosine distance of the matched child (lower = better)
+    Döner
+    -----
+    list[dict] — Her öğe: child_text, parent_text (== text), source,
+                  filename, parent_id, child_index, distance.
     """
+    top_k = top_k if top_k is not None else settings.RETRIEVAL_TOP_K
+    threshold = distance_threshold if distance_threshold is not None else settings.RETRIEVAL_DISTANCE_THRESHOLD
+
     collection = _get_chroma_collection()
     if collection.count() == 0:
         raise ValueError(
-            "Vektör veritabanı boş. Lütfen önce veri yükleme işlemini çalıştırın."
+            "Vektör veritabanı boş. Lütfen önce 'Veritabanını Yenile' adımını çalıştırın."
         )
 
     parents = _load_parents()
     if not parents:
         raise ValueError(
-            "parents.json bulunamadı. Lütfen önce veri yükleme işlemini çalıştırın."
+            "parents.json bulunamadı. Lütfen ingestion adımını tekrar çalıştırın."
         )
 
-    client = _get_genai_client()
-    query_vector = _embed_query(client, query)
-
+    query_vector = _embed_query(query)
     where_clause = {"source": source_filter} if source_filter else None
 
-    query_kwargs = {
+    query_kwargs: dict = {
         "query_embeddings": [query_vector],
-        "n_results": min(top_k * 3, collection.count()),  # over-fetch for dedup
+        "n_results": min(top_k * 3, collection.count()),
         "include": ["documents", "metadatas", "distances"],
     }
     if where_clause:
@@ -152,16 +127,13 @@ def retrieve_context(
     if not documents:
         raise ValueError("Sorgu için hiçbir sonuç döndürülmedi.")
 
-    # Filter by threshold, then deduplicate by parent_id (keep closest child)
     seen_parents: dict[str, dict] = {}
     for child_text, meta, dist in zip(documents, metadatas, distances):
-        if float(dist) > distance_threshold:
+        if float(dist) > threshold:
             continue
-
         parent_id = meta.get("parent_id", "")
         if not parent_id or parent_id not in parents:
             continue
-
         if parent_id not in seen_parents or float(dist) < seen_parents[parent_id]["distance"]:
             seen_parents[parent_id] = {
                 "child_text": child_text,
@@ -172,7 +144,6 @@ def retrieve_context(
                 "filename": meta.get("filename", "bilinmiyor"),
             }
 
-    # Sort by distance, take top_k, attach parent text
     ordered = sorted(seen_parents.values(), key=lambda r: r["distance"])[:top_k]
 
     formatted = []
@@ -182,7 +153,7 @@ def retrieve_context(
         formatted.append({
             "child_text": item["child_text"],
             "parent_text": parent_text,
-            "text": parent_text,           # backward-compat alias
+            "text": parent_text,
             "source": item["source"],
             "filename": item["filename"],
             "parent_id": item["parent_id"],
@@ -191,49 +162,45 @@ def retrieve_context(
         })
 
     logger.info(
-        "Sorgu: '%s' | Filtre: %s | Sonuç: %d parent | En iyi mesafe: %.4f",
-        query[:80],
-        source_filter or "tümü",
-        len(formatted),
-        formatted[0]["distance"] if formatted else 0.0,
+        "Retrieval tamamlandı",
+        extra={
+            "event": "retrieval_complete",
+            "query_len": len(query),
+            "filter": source_filter or "all",
+            "results": len(formatted),
+            "top_distance": formatted[0]["distance"] if formatted else None,
+        },
     )
-
     return formatted
 
 
-def build_context_text(chunks: list[dict]) -> tuple[str, list]:
+def build_context_text(chunks: list[dict]) -> tuple[str, list[str]]:
     """
-    Format retrieved parent chunks into a context string for LLM prompts.
+    Retrieved parent parçalarını LLM bağlam metnine dönüştürür.
 
-    Returns
-    -------
-    tuple[str, list]
-        - context_text: formatted context block using parent_text
-        - parent_ids: list of parent_id strings for citation
+    Döner
+    -----
+    tuple[str, list[str]]
+        - context_text: kaynak etiketleri ile parent metinleri.
+        - parent_ids: atıf kullanımı için.
     """
-    parts = []
-    parent_ids = []
+    parts: list[str] = []
+    parent_ids: list[str] = []
     for i, chunk in enumerate(chunks):
-        label = (
-            f"[Kaynak {i + 1}: {chunk['filename']} — {chunk['parent_id']}]"
-        )
+        label = f"[Kaynak {i + 1}: {chunk['filename']} — {chunk['parent_id']}]"
         parts.append(f"{label}\n{chunk['parent_text']}")
         parent_ids.append(chunk["parent_id"])
-
     return "\n\n---\n\n".join(parts), parent_ids
 
 
 def lookup_parent_context(parent_id: str) -> dict | None:
     """
-    Return parent text and its child chunks for a given parent_id.
-    Used by the expert approval panel to display source citations.
-
-    Returns None if parent_id is not found.
+    Verilen parent_id için parent metnini ve onun child'larını döndürür.
+    Uzman onay paneli, kaynak alıntılarını göstermek için kullanır.
     """
     parents = _load_parents()
     if parent_id not in parents:
         return None
-
     parent_data = parents[parent_id]
 
     try:
@@ -250,7 +217,7 @@ def lookup_parent_context(parent_id: str) -> dict | None:
             })
         children.sort(key=lambda c: c["child_index"])
     except Exception as exc:
-        logger.warning("Child chunk'lar alınamadı (parent_id=%s): %s", parent_id, exc)
+        logger.warning("Child'lar alınamadı (%s): %s", parent_id, exc)
         children = []
 
     return {
@@ -262,6 +229,7 @@ def lookup_parent_context(parent_id: str) -> dict | None:
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
     test_query = "SGK kesintisi hesaplama"
     print(f"Test sorgusu: '{test_query}'\n")
     try:

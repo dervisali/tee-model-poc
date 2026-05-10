@@ -1,18 +1,24 @@
-# Use the official Python lightweight image
-FROM python:3.10-slim
+# TEE-Model uygulama imajı — yerel Ollama yığını ile birlikte çalışır.
+# Ollama servisi ayrı bir konteynerdedir (bkz. docker-compose.yml).
 
-# Set the working directory
+FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    HF_HOME=/app/.cache/hf
+
 WORKDIR /app
 
-# Copy requirements file first to leverage Docker cache
-COPY requirements.txt .
+# sentence-transformers / torch için sistem bağımlılıkları
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install dependencies
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest of the application code
 COPY . .
 
-# Cloud Run injects the $PORT environment variable (defaults to 8080)
-# Streamlit needs to be told to listen on 0.0.0.0 and on this port
-CMD streamlit run app.py --server.port=${PORT:-8080} --server.address=0.0.0.0
+EXPOSE 8501
+
+CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]

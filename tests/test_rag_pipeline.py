@@ -29,8 +29,6 @@ import chromadb
 from src.anonymizer import anonymize_text
 from src.ingestion import (
     _split_into_chunks,
-    _get_genai_client,
-    _embed_chunk,
     _get_chroma_collection,
     MIN_CHUNK_CHARS,
     MAX_CHUNK_CHARS,
@@ -41,6 +39,24 @@ from src.ingestion import (
 )
 from src.retrieval import retrieve_context, _embed_query
 from src.generators import generate_process_map
+
+# NOTE: After the Ollama/e5 migration (Phase 0.5), the live-API helpers
+# `_get_genai_client` and `_embed_chunk` no longer exist. Phase 4 will replace
+# this entire test file with a pytest-based suite covering the new stack
+# (chunking strategies, BM25, hybrid retrieval, confidence scoring). Until then,
+# the embedding-shape and Chroma round-trip classes below are skipped via
+# `unittest.skip` so the file still imports and the unit tests
+# (anonymizer / chunker) keep running.
+
+def _embed_chunk(*_args, **_kwargs):  # pragma: no cover — kept for parity only
+    raise unittest.SkipTest(
+        "Eski Gemini gömme yardımcısı kaldırıldı; src.embeddings.embed_passage kullanın."
+    )
+
+def _get_genai_client(*_args, **_kwargs):  # pragma: no cover
+    raise unittest.SkipTest(
+        "Gemini istemcisi kaldırıldı; Ollama yığınına geçildi."
+    )
 
 CHROMA_DIR_STR = str(CHROMA_DIR)
 
@@ -187,10 +203,11 @@ class TestChunker(unittest.TestCase):
 # TEST 3: Embedding shape
 # ===========================================================================
 
+@unittest.skip("Phase 0.5: Gemini gömme yardımcıları kaldırıldı; Phase 4 pytest süitinde yeniden yazılacak.")
 class TestEmbeddingShape(unittest.TestCase):
     """
-    Test 3: Verify the Gemini embedding API returns a valid float vector.
-    Requires a live GOOGLE_API_KEY.
+    Test 3: (Devre dışı) Eski Gemini gömme şekli kontrolü.
+    Phase 4'te src.embeddings.embed_passage için yeniden yazılacak.
     """
 
     @classmethod
@@ -226,10 +243,11 @@ class TestEmbeddingShape(unittest.TestCase):
 # TEST 4: ChromaDB round-trip
 # ===========================================================================
 
+@unittest.skip("Phase 0.5: gemini gömme bağımlılığı; Phase 4 pytest süitinde local e5 ile yeniden yazılacak.")
 class TestChromaDBRoundTrip(unittest.TestCase):
     """
-    Test 4: Insert 3 test chunks into a temporary collection, query,
-    verify results and metadata, then delete the collection.
+    Test 4: (Devre dışı) Eski Gemini gömme tabanlı Chroma round-trip.
+    Phase 4'te src.embeddings.embed_passage ile yeniden yazılacak.
     """
 
     TEST_COLLECTION = "test_round_trip_temp"

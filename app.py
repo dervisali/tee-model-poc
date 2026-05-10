@@ -12,17 +12,16 @@ import logging
 
 import streamlit as st
 import pandas as pd
-from dotenv import load_dotenv
 
 # Ensure src/ is importable when run from project root
 sys.path.insert(0, os.path.dirname(__file__))
 
-load_dotenv()
+from src.config import settings  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
-MOCK_MODE = os.getenv("MOCK_MODE", "false").lower() == "true"
+MOCK_MODE = settings.MOCK_MODE
 
 # ---------------------------------------------------------------------------
 # Page config
@@ -123,7 +122,7 @@ for key, val in _DEFAULTS.items():
 st.title("🏛️ TEE-Model — Tacit-Explicit Entegre Eğitim Sistemi")
 st.caption(
     "Maaş Mutemedi Onboarding POC | "
-    + ("⚠️ MOCK MODU AKTİF — API çağrısı yapılmıyor" if MOCK_MODE else "🟢 Canlı API Modu")
+    + ("⚠️ MOCK MODU AKTİF — yerel servis çağrısı yapılmıyor" if MOCK_MODE else f"🟢 Yerel Ollama: {settings.GENERATION_MODEL}")
 )
 
 tabs = st.tabs(
@@ -306,8 +305,8 @@ with tabs[1]:
                     st.markdown(
                         f"""<div class="hata-karti">
                         <b>Hata:</b> {card.get('hata', '')}<br>
-                        <b>Kök Neden:</b> {card.get('kök_neden', '')}<br>
-                        <b>Tespit Yöntemi:</b> {card.get('tespit_yöntemi', '')}<br>
+                        <b>Kök Neden:</b> {card.get('kok_neden', '')}<br>
+                        <b>Tespit Yöntemi:</b> {card.get('tespit_yontemi', '')}<br>
                         <b>Doğru Uygulama:</b> {card.get('dogru_uygulama', '')}<br>
                         <small>📌 Kaynak Chunk İndeksleri: {card.get('kaynak_chunk_indeksleri', [])}</small>
                         </div>""",
@@ -559,8 +558,8 @@ with tabs[3]:
         label_fn=lambda c: f"Kart {c.get('kart_no', '?')}: {c.get('hata', '')[:60]}",
         detail_fn=lambda c: (
             f"**Hata:** {c.get('hata', '')}\n\n"
-            f"**Kök Neden:** {c.get('kök_neden', '')}\n\n"
-            f"**Tespit Yöntemi:** {c.get('tespit_yöntemi', '')}\n\n"
+            f"**Kök Neden:** {c.get('kok_neden', '')}\n\n"
+            f"**Tespit Yöntemi:** {c.get('tespit_yontemi', '')}\n\n"
             f"**Doğru Uygulama:** {c.get('dogru_uygulama', '')}\n\n"
             f"📌 Kaynak: {c.get('kaynak_chunk_indeksleri', [])}"
         ),
