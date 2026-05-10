@@ -17,11 +17,31 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(__file__))
 
 from src.config import settings  # noqa: E402
+from src.logging_config import configure_logging  # noqa: E402
+from src.job_queue import submit_job, wait_for_job, queue_size  # noqa: E402
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+configure_logging()
 logger = logging.getLogger(__name__)
 
 MOCK_MODE = settings.MOCK_MODE
+
+
+def _run_via_queue(label: str, fn, *args, **kwargs):
+    """Üretim çağrılarını paylaşılan kuyruktan geçirir, Streamlit spinner ile."""
+    job_id = submit_job(fn, *args, **kwargs)
+    queued_count = queue_size()
+    waiting_label = (
+        f"{label} ({job_id}) — kuyrukta {queued_count} iş..."
+        if queued_count > 1
+        else f"{label} ({job_id})..."
+    )
+    with st.spinner(waiting_label):
+        status = wait_for_job(job_id, timeout=600)
+    if status["status"] == "done":
+        return status["result"], None
+    if status["status"] == "error":
+        return None, status["error"]
+    return None, f"İş zaman aşımına uğradı (status={status['status']})"
 
 # ---------------------------------------------------------------------------
 # Page config
@@ -299,14 +319,12 @@ with tabs[1]:
     if st.button("Süreç Haritası Oluştur", key="gen_process_map"):
         from src.generators import generate_process_map
 
-        with st.spinner("Süreç haritası oluşturuluyor..."):
-            try:
-                result = generate_process_map()
-                st.session_state["process_map"] = result
-                # Reset approvals for this content
-                st.session_state["approvals"]["process_map"] = {}
-            except Exception as exc:
-                st.error(f"Hata: {exc}")
+        result, error = _run_via_queue("Süreç haritası oluşturuluyor", generate_process_map)
+        if error:
+            st.error(f"Hata: {error}")
+        else:
+            st.session_state["process_map"] = result
+            st.session_state["approvals"]["process_map"] = {}
 
     pm = st.session_state.get("process_map")
     if pm:
@@ -330,13 +348,12 @@ with tabs[1]:
     if st.button("Hata Kartlarını Oluştur", key="gen_error_cards"):
         from src.generators import generate_error_cards
 
-        with st.spinner("Hata kartları oluşturuluyor..."):
-            try:
-                result = generate_error_cards()
-                st.session_state["error_cards"] = result
-                st.session_state["approvals"]["error_cards"] = {}
-            except Exception as exc:
-                st.error(f"Hata: {exc}")
+        result, error = _run_via_queue("Hata kartları oluşturuluyor", generate_error_cards)
+        if error:
+            st.error(f"Hata: {error}")
+        else:
+            st.session_state["error_cards"] = result
+            st.session_state["approvals"]["error_cards"] = {}
 
     ec = st.session_state.get("error_cards")
     if ec:
@@ -364,13 +381,12 @@ with tabs[1]:
     if st.button("Terim Sözlüğü Oluştur", key="gen_glossary"):
         from src.generators import generate_glossary
 
-        with st.spinner("Terim sözlüğü oluşturuluyor..."):
-            try:
-                result = generate_glossary()
-                st.session_state["glossary"] = result
-                st.session_state["approvals"]["glossary"] = {}
-            except Exception as exc:
-                st.error(f"Hata: {exc}")
+        result, error = _run_via_queue("Terim sözlüğü oluşturuluyor", generate_glossary)
+        if error:
+            st.error(f"Hata: {error}")
+        else:
+            st.session_state["glossary"] = result
+            st.session_state["approvals"]["glossary"] = {}
 
     gl = st.session_state.get("glossary")
     if gl:
@@ -398,15 +414,14 @@ with tabs[2]:
     if st.button("🎲 Yeni Senaryo Oluştur", key="gen_simulation"):
         from src.generators import generate_simulation_scenario
 
-        with st.spinner("Senaryo oluşturuluyor..."):
-            try:
-                result = generate_simulation_scenario()
-                st.session_state["simulation"] = result
-                st.session_state["sim_selected"] = None
-                st.session_state["sim_answered"] = False
-                st.session_state["approvals"]["simulation"] = {}
-            except Exception as exc:
-                st.error(f"Hata: {exc}")
+        result, error = _run_via_queue("Senaryo oluşturuluyor", generate_simulation_scenario)
+        if error:
+            st.error(f"Hata: {error}")
+        else:
+            st.session_state["simulation"] = result
+            st.session_state["sim_selected"] = None
+            st.session_state["sim_answered"] = False
+            st.session_state["approvals"]["simulation"] = {}
 
     sim = st.session_state.get("simulation")
     if sim:
