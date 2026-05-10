@@ -1,5 +1,5 @@
 """
-TEE-Model POC — Streamlit Uygulaması
+TEE-Model — Streamlit Uygulaması
 
 Maaş mutemedi onboarding eğitimi için yapay zeka destekli içerik üretimi.
 Veri yükleme, süreç haritası, hata kartları, terim sözlüğü, simülasyon
@@ -48,7 +48,7 @@ def _run_via_queue(label: str, fn, *args, **kwargs):
 # ---------------------------------------------------------------------------
 
 st.set_page_config(
-    page_title="TEE-Model POC — Maaş Mutemedi Eğitim Sistemi",
+    page_title="TEE-Model — Maaş Mutemedi Eğitim Sistemi",
     page_icon="🏛️",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -185,7 +185,7 @@ for key, val in _DEFAULTS.items():
 
 st.title("🏛️ TEE-Model — Tacit-Explicit Entegre Eğitim Sistemi")
 st.caption(
-    "Maaş Mutemedi Onboarding POC | "
+    "Maaş Mutemedi Onboarding | "
     + ("⚠️ MOCK MODU AKTİF — cloud servis çağrısı yapılmıyor" if MOCK_MODE else f"🟢 Vertex AI Gemini: {settings.GENERATION_MODEL}")
 )
 

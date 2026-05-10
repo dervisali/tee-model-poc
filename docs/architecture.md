@@ -286,7 +286,7 @@ TC'den önce; IBAN'ın TR + 24 hanesi başka kalıpları gölgelememeli.
 |---|---|
 | Alternatifler | (a) Streamlit'in doğal seri davranışına güven; (b) Tek-işçili thread pool; (c) FastAPI ayrı servis |
 | Seçim | (b) `concurrent.futures.ThreadPoolExecutor(max_workers=1)`. |
-| Gerekçe | Çok-kullanıcılı senaryoda Streamlit oturum izolasyonu paralel çağrılara izin verir; yerel Ollama tek modeli paylaşıyor. (a) Ollama bağlantı timeout'una düşer. (c) POC için aşırı mühendislik. |
+| Gerekçe | Çok-kullanıcılı senaryoda Streamlit oturum izolasyonu paralel çağrılara izin verir. Cloud branch'te tek-işçili kuyruk, Vertex AI kota/maliyet kontrolü ve kullanıcıya izlenebilir uzun iş durumu vermek için korunur. Production ölçeği arttığında kalıcı kuyruk (Cloud Tasks / Pub/Sub) veya ayrı API worker mimarisi tercih edilmelidir. |
 | Atıf | Phase 3.1 commit `917820d`. |
 
 ---

@@ -1,1 +1,1 @@
-# TEE-Model POC — source package
+# TEE-Model — source package

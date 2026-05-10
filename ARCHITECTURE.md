@@ -1,4 +1,4 @@
-# TEE-Model POC (Maaş Mutemedi Eğitim Sistemi) - Architecture & Context
+# TEE-Model (Maaş Mutemedi Eğitim Sistemi) - Architecture & Context
 
 > Cloud branch note: `feature/cloud-vertex-rag-v2` runs on Vertex AI
 > `gemini-2.5-flash` for generation and `gemini-embedding-001` for
@@ -6,7 +6,7 @@
 > `src/embeddings.py` are the source of truth for deployed settings.
 
 ## 🎯 Project Purpose
-The **TEE-Model POC** is a Retrieval-Augmented Generation (RAG) system designed to onboard and train public institution payroll officers (Maaş Mutemedi). It tackles the critical issue of knowledge loss by bridging two types of information:
+The **TEE-Model** is a production Retrieval-Augmented Generation (RAG) system designed to onboard and train public institution payroll officers (Maaş Mutemedi). It tackles the critical issue of knowledge loss by bridging two types of information:
 1. **Explicit Knowledge:** Formal regulations, laws, and official procedures (Mevzuat).
 2. **Tacit Knowledge:** Unwritten rules, practical tips, and common pitfalls gathered from interviews with veteran payroll officers.
 

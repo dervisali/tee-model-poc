@@ -1,5 +1,5 @@
 """
-TEE-Model POC — Sunum Oluşturucu
+TEE-Model — Sunum Oluşturucu
 Playwright ile ekran görüntüsü alır, python-pptx ile sunum oluşturur.
 """
 
@@ -115,7 +115,7 @@ def add_header_bar(slide, title, subtitle=None):
                      font_size=13, font_color=RGBColor(0xBB, 0xCC, 0xFF))
 
 
-def add_footer(slide, text="TEE-Model POC | Maaş Mutemedi Onboarding Sistemi"):
+def add_footer(slide, text="TEE-Model | Maaş Mutemedi Onboarding Sistemi"):
     add_colored_box(slide, 0, Inches(7.15), SLIDE_W, Inches(0.35), BLUE_MID)
     add_text_box(slide, text,
                  Inches(0.3), Inches(7.17), Inches(12), Inches(0.3),
@@ -293,7 +293,7 @@ def build_pptx():
 
     # Ana başlık
     add_text_box(slide,
-                 "TEE-Model POC",
+                 "TEE-Model",
                  Inches(1), Inches(1.8), Inches(11.33), Inches(1.2),
                  font_size=46, font_color=WHITE, bold=True, align=PP_ALIGN.CENTER)
 
@@ -906,7 +906,7 @@ def build_pptx():
         ("🎯", "Akademik Katkı",
          "Tacit ve explicit bilginin RAG mimarisinde\nbütünleştirilmesi için yenilikiçi bir çerçeve"),
         ("🏛️", "Pratik Katkı",
-         "Kamu kurumlarında onboarding süresini\nkısaltan, denetlenebilir bir POC sistemi"),
+         "Kamu kurumlarında onboarding süresini\nkısaltan, denetlenebilir bir production sistemi"),
         ("🔒", "Etik Katkı",
          "KVKK uyumlu, şeffaf kaynak atıflı ve\ninsan onayı gerektiren sorumlu AI kullanımı"),
         ("🔬", "Teknik Katkı",
@@ -925,7 +925,7 @@ def build_pptx():
                      font_size=13, font_color=WHITE)
 
     add_colored_box(slide, 0, Inches(7.15), SLIDE_W, Inches(0.35), ORANGE)
-    add_text_box(slide, "TEE-Model POC | Nisan 2026",
+    add_text_box(slide, "TEE-Model | Nisan 2026",
                  Inches(0.3), Inches(7.17), SLIDE_W - Inches(0.6), Inches(0.3),
                  font_size=10, font_color=WHITE, align=PP_ALIGN.CENTER)
 
