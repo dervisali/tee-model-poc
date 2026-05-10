@@ -1,0 +1,17 @@
+.git
+.gitignore
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.env
+tmp*/
+scratch.py
+*.md
+*.docx
+*.key
+*.pptx
+screenshots/
