@@ -186,7 +186,7 @@ for key, val in _DEFAULTS.items():
 st.title("🏛️ TEE-Model — Tacit-Explicit Entegre Eğitim Sistemi")
 st.caption(
     "Maaş Mutemedi Onboarding POC | "
-    + ("⚠️ MOCK MODU AKTİF — yerel servis çağrısı yapılmıyor" if MOCK_MODE else f"🟢 Yerel Ollama: {settings.GENERATION_MODEL}")
+    + ("⚠️ MOCK MODU AKTİF — cloud servis çağrısı yapılmıyor" if MOCK_MODE else f"🟢 Vertex AI Gemini: {settings.GENERATION_MODEL}")
 )
 
 tabs = st.tabs(

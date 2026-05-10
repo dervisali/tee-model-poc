@@ -27,16 +27,26 @@ class Settings(BaseSettings):
     # Modeller
     # -------------------------------------------------------------------
     GENERATION_MODEL: str = Field(
-        default="gemma3:4b",
-        description="Ollama tarafından sunulan üretim modeli adı.",
+        default="gemini-2.5-flash",
+        description="Vertex AI Gemini üretim modeli adı.",
     )
     EMBEDDING_MODEL: str = Field(
-        default="intfloat/multilingual-e5-large",
-        description="sentence-transformers gömme modeli (1024 boyut).",
+        default="gemini-embedding-001",
+        description="Vertex AI text embedding modeli (varsayılan 3072 boyut).",
     )
-    OLLAMA_BASE_URL: str = Field(
-        default="http://localhost:11434",
-        description="Ollama HTTP servisinin temel URL'si.",
+    EMBEDDING_DIMENSION: int = Field(
+        default=3072,
+        ge=128,
+        le=3072,
+        description="gemini-embedding-001 output_dimensionality değeri.",
+    )
+    GOOGLE_CLOUD_PROJECT: str | None = Field(
+        default=None,
+        description="Vertex AI projesi. Boşsa Google Gen AI SDK ortam değişkenini kullanır.",
+    )
+    GOOGLE_CLOUD_LOCATION: str = Field(
+        default="us-central1",
+        description="Vertex AI bölgesi. Cloud Run servisinizle aynı bölge önerilir.",
     )
 
     # -------------------------------------------------------------------

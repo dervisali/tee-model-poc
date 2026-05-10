@@ -1,5 +1,5 @@
 """
-Ollama LLM istemcisi — TEE-Model'in tek üretim noktası.
+Vertex AI Gemini LLM istemcisi — TEE-Model'in tek üretim noktası.
 
 Bu modül, sistemdeki TÜM LLM çağrılarının tek geçtiği yerdir. Yeniden deneme
 (retry), yapılandırılmış JSON çıktısı (response_format), zamanlama ve
@@ -8,10 +8,11 @@ loglamayı bir arada sağlar. Üretim, yargı ve enrichment çağrıları aynı 
 asenkron kuyruk, yeniden deneme) tek dosyada uygulanır.
 
 Karar gerekçesi:
-- Ollama'nın `format=<json-schema>` parametresi v0.5+ ile birlikte gelir ve
-  Pydantic'in `model_json_schema()` çıktısını doğrudan kabul eder. Bu sayede
-  Gemini'deki `response_schema=PydanticModel` davranışı korunur.
-- `tenacity` ile sarılmış üretim çağrısı, geçici Ollama bağlantı hatalarına
+- Cloud Run üzerinde ayrı bir Ollama sunucusu yönetmeden Vertex AI Gemini
+  kullanılabilir.
+- Google Gen AI SDK `response_schema` desteğiyle Pydantic şemaları üzerinden
+  yapılandırılmış JSON çıktısı alınır.
+- `tenacity` ile sarılmış üretim çağrısı, geçici Vertex AI bağlantı hatalarına
   karşı dayanıklılık sağlar (Phase 3.4).
 """
 
@@ -31,12 +32,14 @@ from tenacity import (
 
 from src.config import settings
 
-# `ollama` import isteğe bağlıdır: testler ve hafif yardımcılar bu modülü
-# yüklediğinde Ollama paketi yüklü olmasa bile import etmek hata vermemeli.
+# `google-genai` import isteğe bağlıdır: testler ve hafif yardımcılar bu modülü
+# yüklediğinde paket yüklü olmasa bile import etmek hata vermemeli.
 try:
-    import ollama  # type: ignore[import-not-found]
+    from google import genai  # type: ignore[import-not-found]
+    from google.genai.types import HttpOptions  # type: ignore[import-not-found]
 except ImportError:  # pragma: no cover
-    ollama = None  # type: ignore[assignment]
+    genai = None  # type: ignore[assignment]
+    HttpOptions = None  # type: ignore[assignment]
 
 
 logger = logging.getLogger(__name__)
@@ -49,15 +52,22 @@ logger = logging.getLogger(__name__)
 _client = None  # type: ignore[var-annotated]
 
 
-def get_ollama_client():
-    """Ortak Ollama istemcisini döndürür; ilk çağrıda oluşturulur."""
+def get_vertex_client():
+    """Ortak Vertex AI Gemini istemcisini döndürür; ilk çağrıda oluşturulur."""
     global _client
-    if ollama is None:
+    if genai is None or HttpOptions is None:
         raise ImportError(
-            "ollama paketi yüklü değil. Lütfen 'pip install ollama' ile kurun."
+            "google-genai paketi yüklü değil. Lütfen 'pip install google-genai' ile kurun."
         )
     if _client is None:
-        _client = ollama.Client(host=settings.OLLAMA_BASE_URL)
+        kwargs = {
+            "vertexai": True,
+            "location": settings.GOOGLE_CLOUD_LOCATION,
+            "http_options": HttpOptions(api_version="v1"),
+        }
+        if settings.GOOGLE_CLOUD_PROJECT:
+            kwargs["project"] = settings.GOOGLE_CLOUD_PROJECT
+        _client = genai.Client(**kwargs)
     return _client
 
 
@@ -65,8 +75,8 @@ def get_ollama_client():
 # Yardımcılar
 # ---------------------------------------------------------------------------
 
-def _schema_to_format(schema: type[BaseModel] | dict | None) -> dict | None:
-    """Pydantic modelini Ollama `format` parametresine uygun JSON şemasına çevirir."""
+def _schema_to_response_schema(schema: type[BaseModel] | dict | None) -> dict | None:
+    """Pydantic modelini Gemini `response_schema` parametresine çevirir."""
     if schema is None:
         return None
     if isinstance(schema, dict):
@@ -113,33 +123,33 @@ def generate(
     temperature : float | None
         Geçersiz kılma için sıcaklık; varsayılan settings.LLM_TEMPERATURE.
     response_format : Pydantic model | dict | None
-        Verilirse Ollama `format=<schema>` ile yapılandırılmış JSON döner.
+        Verilirse Gemini `response_schema` ile yapılandırılmış JSON döner.
 
     Döner
     -----
     str — Modelin ham metin yanıtı (response_format verildiyse JSON metni).
     """
-    client = get_ollama_client()
-    options: dict[str, Any] = {"temperature": temperature if temperature is not None else settings.LLM_TEMPERATURE}
-
-    messages: list[dict[str, str]] = []
+    client = get_vertex_client()
+    config: dict[str, Any] = {
+        "temperature": temperature if temperature is not None else settings.LLM_TEMPERATURE,
+    }
     if system:
-        messages.append({"role": "system", "content": system})
-    messages.append({"role": "user", "content": prompt})
+        config["system_instruction"] = system
 
-    fmt = _schema_to_format(response_format)
+    response_schema = _schema_to_response_schema(response_format)
+    if response_schema is not None:
+        config["response_mime_type"] = "application/json"
+        config["response_schema"] = response_schema
 
     started = time.perf_counter()
-    response = client.chat(
+    response = client.models.generate_content(
         model=model or settings.GENERATION_MODEL,
-        messages=messages,
-        options=options,
-        format=fmt,
-        stream=False,
+        contents=prompt,
+        config=config,
     )
     elapsed_ms = (time.perf_counter() - started) * 1000
 
-    text = response["message"]["content"]
+    text = response.text or ""
     logger.info(
         "LLM üretim tamamlandı",
         extra={
@@ -147,7 +157,7 @@ def generate(
             "model": model or settings.GENERATION_MODEL,
             "duration_ms": round(elapsed_ms, 1),
             "response_length": len(text),
-            "structured": fmt is not None,
+            "structured": response_schema is not None,
         },
     )
     return text
@@ -157,13 +167,21 @@ def generate(
 # Sağlık kontrolü
 # ---------------------------------------------------------------------------
 
-def is_ollama_available() -> bool:
-    """Ollama servisi erişilebilir ve hedef model yüklü mü?"""
+def is_vertex_available() -> bool:
+    """Vertex AI Gemini erişilebilir mi?"""
     try:
-        client = get_ollama_client()
-        models = client.list().get("models", [])
-        names = {m.get("model", m.get("name", "")) for m in models}
-        return any(settings.GENERATION_MODEL in n for n in names)
+        client = get_vertex_client()
+        response = client.models.generate_content(
+            model=settings.GENERATION_MODEL,
+            contents="ok",
+            config={"temperature": 0.0},
+        )
+        return bool(response.text)
     except Exception as exc:
-        logger.warning("Ollama erişilemedi: %s", exc)
+        logger.warning("Vertex AI erişilemedi: %s", exc)
         return False
+
+
+# Geriye uyumluluk: app/test importları kırılmasın.
+get_ollama_client = get_vertex_client
+is_ollama_available = is_vertex_available

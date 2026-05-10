@@ -79,28 +79,29 @@ def _generate_answer(question: str, top_k: int = 5) -> tuple[str, list[str]]:
 # ---------------------------------------------------------------------------
 
 def _build_ragas_clients():
-    """Ollama LLM ve e5 gömme modelini RAGAS sarmalayıcılarına yerleştirir."""
+    """Vertex AI Gemini LLM ve embedding modelini RAGAS sarmalayıcılarına yerleştirir."""
     try:
-        from langchain_ollama import ChatOllama
-        from langchain_huggingface import HuggingFaceEmbeddings
+        from langchain_google_vertexai import ChatVertexAI, VertexAIEmbeddings
         from ragas.llms import LangchainLLMWrapper
         from ragas.embeddings import LangchainEmbeddingsWrapper
     except ImportError as exc:
         raise ImportError(
             "RAGAS bağımlılıkları eksik. Lütfen: "
-            "pip install ragas langchain-ollama langchain-huggingface"
+            "pip install ragas langchain-google-vertexai"
         ) from exc
 
-    ollama_llm = ChatOllama(
+    vertex_llm = ChatVertexAI(
         model=settings.GENERATION_MODEL,
-        base_url=settings.OLLAMA_BASE_URL,
+        project=settings.GOOGLE_CLOUD_PROJECT,
+        location=settings.GOOGLE_CLOUD_LOCATION,
         temperature=0.0,  # yargıç çağrılarında deterministik istiyoruz
     )
-    hf_embeddings = HuggingFaceEmbeddings(
+    vertex_embeddings = VertexAIEmbeddings(
         model_name=settings.EMBEDDING_MODEL,
-        encode_kwargs={"normalize_embeddings": True},
+        project=settings.GOOGLE_CLOUD_PROJECT,
+        location=settings.GOOGLE_CLOUD_LOCATION,
     )
-    return LangchainLLMWrapper(ollama_llm), LangchainEmbeddingsWrapper(hf_embeddings)
+    return LangchainLLMWrapper(vertex_llm), LangchainEmbeddingsWrapper(vertex_embeddings)
 
 
 # ---------------------------------------------------------------------------

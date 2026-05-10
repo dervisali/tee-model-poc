@@ -1,5 +1,4 @@
-# TEE-Model uygulama imajı — yerel Ollama yığını ile birlikte çalışır.
-# Ollama servisi ayrı bir konteynerdedir (bkz. docker-compose.yml).
+# TEE-Model uygulama imajı — Vertex AI Gemini cloud yığını ile çalışır.
 
 FROM python:3.11-slim
 
@@ -9,7 +8,7 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# sentence-transformers / torch için sistem bağımlılıkları
+# chromadb ve bazı Python paketleri için sistem bağımlılıkları
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*

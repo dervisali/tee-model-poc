@@ -4,7 +4,7 @@ Kamu kurumlarında kurumsal bellek kaybını (corporate amnesia) azaltmak için 
 
 **Hedef kullanım durumu:** Maaş mutemedi onboarding'i.
 
-> **Sürüm 2 (production-rag-v2):** Sistem tamamen yerel inferans yığınına geçti — Ollama (gemma3:4b) ve sentence-transformers (multilingual-e5-large). Üretim Phase 1–5 yol haritası ile TÜBİTAK uyumlu üretim kalitesine taşınmaktadır.
+> **Cloud sürüm (cloud-vertex-rag-v2):** Bu branch Vertex AI Gemini kullanır — `gemini-2.5-flash` üretim modeli ve `gemini-embedding-001` cloud embedding modeli. Yerel Ollama/e5 sürümü `feature/production-rag-v2` branch'inde korunur.
 
 ## Mimari
 
@@ -12,20 +12,22 @@ Kamu kurumlarında kurumsal bellek kaybını (corporate amnesia) azaltmak için 
 data/                       Ham veri kaynakları (mevzuat + tacit transkript)
   ↓ src/anonymizer.py       KVKK uyumlu PII maskeleme
 processed/                  Anonimleştirilmiş metinler
-  ↓ src/ingestion.py        PDR iki seviyeli chunker + sentence-transformers
-chroma_db/                  Yerel vektör veritabanı (1024 boyut, e5-large)
+  ↓ src/ingestion.py        PDR iki seviyeli chunker + Vertex AI embeddings
+chroma_db/                  Yerel vektör veritabanı (3072 boyut, Gemini embedding)
   ↓ src/retrieval.py        Yoğun + (Phase 1.3) hibrit BM25 retrieval
-  ↓ src/generators.py       Ollama gemma3:4b ile structured JSON üretimi
+  ↓ src/generators.py       Vertex AI Gemini ile structured JSON üretimi
 app.py                      Streamlit UI (6 sekme)
 ```
 
 ## Kurulum (yerel)
 
-1. **Ollama'yı kur ve modeli indir** ([ollama.com](https://ollama.com)):
+1. **Google Cloud kimliğini hazırla**:
    ```bash
-   ollama pull gemma3:4b
+   gcloud auth application-default login
+   gcloud config set project YOUR_PROJECT_ID
+   gcloud services enable aiplatform.googleapis.com
    ```
-2. **Python bağımlılıklarını kur** (sentence-transformers + torch ~3 GB indirir):
+2. **Python bağımlılıklarını kur**:
    ```bash
    pip install -r requirements.txt
    ```
@@ -35,7 +37,7 @@ app.py                      Streamlit UI (6 sekme)
    ```
 4. **İlk veri yüklemesi:**
    ```bash
-   # Mevcut chroma_db (3072-boyutlu Gemini gömeleri) artık geçersiz; bir kez sil
+   # Embedding modeli değiştiğinde chroma_db yeniden oluşturulmalıdır
    rm -rf chroma_db/
    python -m src.ingestion
    ```
@@ -50,7 +52,7 @@ app.py                      Streamlit UI (6 sekme)
 docker compose up
 ```
 
-`docker-compose.yml` Ollama servisini ve Streamlit uygulamasını birlikte ayağa kaldırır; gemma3:4b ilk açılışta otomatik indirilir.
+`docker-compose.yml` yalnızca Streamlit uygulamasını ayağa kaldırır; model çağrıları Vertex AI'a gider. Cloud Run'da servis hesabına Vertex AI User yetkisi verilmelidir.
 
 ## Mock modu
 
@@ -75,9 +77,11 @@ Tam liste için `src/config.py`. En kritikler:
 
 | Değişken | Varsayılan | Açıklama |
 |---|---|---|
-| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama servisi |
-| `GENERATION_MODEL` | `gemma3:4b` | Üretim modeli |
-| `EMBEDDING_MODEL` | `intfloat/multilingual-e5-large` | Yerel gömme modeli |
+| `GOOGLE_CLOUD_PROJECT` | - | Vertex AI projesi |
+| `GOOGLE_CLOUD_LOCATION` | `us-central1` | Vertex AI bölgesi |
+| `GENERATION_MODEL` | `gemini-2.5-flash` | Üretim modeli |
+| `EMBEDDING_MODEL` | `gemini-embedding-001` | Cloud gömme modeli |
+| `EMBEDDING_DIMENSION` | `3072` | Gömme boyutu |
 | `MOCK_MODE` | `false` | API çağrısı yapmadan fixture döndür |
 | `ENABLE_HYBRID_SEARCH` | `true` | BM25 + dense füzyon |
 | `ENABLE_CONTEXTUAL_ENRICHMENT` | `true` | Anthropic 2024 contextual retrieval |

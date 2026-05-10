@@ -7,10 +7,8 @@ pydantic-settings>=2.2
 python-dotenv>=1.0
 pandas>=2.0
 
-# Local inference stack
-ollama>=0.4
-sentence-transformers>=2.7
-torch>=2.2
+# Cloud inference stack (Vertex AI Gemini)
+google-genai>=1.0
 
 # Vector store
 chromadb>=0.5
@@ -26,8 +24,7 @@ structlog>=24.1
 
 # Evaluation (Phase 2.1 — RAGAS)
 ragas>=0.2
-langchain-ollama>=0.2
-langchain-huggingface>=0.1
+langchain-google-vertexai>=2.0
 datasets>=2.18
 
 # Tests

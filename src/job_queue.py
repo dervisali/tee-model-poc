@@ -43,19 +43,20 @@ def submit_job(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> str:
 
     def _wrapper() -> Any:
         with _lock:
-            _jobs[job_id]["status"] = "running"
-            _jobs[job_id]["started_at"] = time.time()
+            entry = _jobs.get(job_id)
+            if entry is not None:
+                entry["status"] = "running"
+                entry["started_at"] = time.time()
         logger.info(
             "İş başladı",
             extra={"event": "job_running", "job_id": job_id, "fn": fn.__name__},
         )
         return fn(*args, **kwargs)
 
-    future: Future = _executor.submit(_wrapper)
     with _lock:
         _jobs[job_id] = {
             "status": "queued",
-            "future": future,
+            "future": None,
             "submitted_at": time.time(),
             "started_at": None,
             "completed_at": None,
@@ -63,6 +64,10 @@ def submit_job(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> str:
             "error": None,
             "fn_name": fn.__name__,
         }
+
+    future: Future = _executor.submit(_wrapper)
+    with _lock:
+        _jobs[job_id]["future"] = future
 
     def _on_complete(fut: Future) -> None:
         with _lock:
