@@ -541,10 +541,74 @@ def insert_new_document(filepath: str, source_type: str) -> dict:
     else:
         pending_texts = source_child_originals
 
+    embeddings: list[list[float]] = []
+    if pending_ids:
+        embeddings = embed_passages(pending_texts)
+
+    # Phase 1.2.C — duplikat tespiti
+    dedup_summary = {"dropped_existing": 0, "dropped_inside_doc": 0, "dropped_ids": []}
+    if settings.ENABLE_DEDUPLICATION and embeddings:
+        kept_ids: list[str] = []
+        kept_texts: list[str] = []
+        kept_metas: list[dict] = []
+        kept_embeddings: list[list[float]] = []
+
+        existing_count = child_col.count()
+        # 1) Mevcut koleksiyona karşı kontrol
+        existing_threshold = 1.0 - settings.DEDUP_SIMILARITY_THRESHOLD  # cosine distance eşiği
+        existing_hits: list[float] = []
+        if existing_count > 0:
+            try:
+                results = child_col.query(
+                    query_embeddings=embeddings,
+                    n_results=1,
+                    include=["distances"],
+                )
+                # results["distances"] = [[d_for_q1], [d_for_q2], ...]
+                for row in results.get("distances", []):
+                    existing_hits.append(float(row[0]) if row else 1.0)
+            except Exception as exc:
+                logger.warning("Dedup mevcut sorgusu başarısız: %s — atlanıyor.", exc)
+                existing_hits = [1.0] * len(embeddings)
+        else:
+            existing_hits = [1.0] * len(embeddings)
+
+        # 2) Belge içi karşılıklı kontrol — vektörler normalize, kosinüs = iç çarpım
+        from src.embeddings import cosine_similarity
+        kept_indices: list[int] = []
+        for i, (cid, txt, meta, vec) in enumerate(zip(pending_ids, pending_texts, pending_metas, embeddings)):
+            if existing_hits[i] < existing_threshold:
+                dedup_summary["dropped_existing"] += 1
+                dedup_summary["dropped_ids"].append({"id": cid, "reason": "existing", "distance": round(existing_hits[i], 4)})
+                logger.info("Duplikat (mevcut): %s atlanıyor (mesafe=%.4f).", cid, existing_hits[i])
+                continue
+
+            # belge içi
+            duplicate_within = False
+            for k_idx in kept_indices:
+                sim = cosine_similarity(vec, embeddings[k_idx])
+                if sim >= settings.DEDUP_SIMILARITY_THRESHOLD:
+                    duplicate_within = True
+                    dedup_summary["dropped_inside_doc"] += 1
+                    dedup_summary["dropped_ids"].append({"id": cid, "reason": "inside_doc", "similarity": round(sim, 4)})
+                    logger.info("Duplikat (belge içi): %s atlanıyor (benz=%.4f).", cid, sim)
+                    break
+            if duplicate_within:
+                continue
+
+            kept_indices.append(i)
+            kept_ids.append(cid)
+            kept_texts.append(txt)
+            kept_metas.append(meta)
+            kept_embeddings.append(vec)
+
+        pending_ids, pending_texts, pending_metas, embeddings = (
+            kept_ids, kept_texts, kept_metas, kept_embeddings,
+        )
+
     _save_parents(parents)
 
     if pending_ids:
-        embeddings = embed_passages(pending_texts)
         child_col.upsert(
             ids=pending_ids,
             embeddings=embeddings,
@@ -558,10 +622,16 @@ def insert_new_document(filepath: str, source_type: str) -> dict:
 
     summary = {
         "new_chunks": len(pending_ids),
+        "dropped_existing": dedup_summary["dropped_existing"],
+        "dropped_inside_doc": dedup_summary["dropped_inside_doc"],
         "filename": doc_path.name,
         "collection_size": child_col.count(),
     }
-    logger.info("Ekleme özeti: new=%d total=%d", summary["new_chunks"], summary["collection_size"])
+    logger.info(
+        "Ekleme özeti: new=%d skipped(existing)=%d skipped(self)=%d total=%d",
+        summary["new_chunks"], summary["dropped_existing"],
+        summary["dropped_inside_doc"], summary["collection_size"],
+    )
     return summary
 
 
