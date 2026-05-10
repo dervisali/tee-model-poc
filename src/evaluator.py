@@ -96,13 +96,28 @@ def _build_ragas_clients():
         temperature=0.0,  # yargıç çağrılarında deterministik istiyoruz
     )
     # LangChain'in VertexAIEmbeddings sarmalayıcısı RAGAS metrikleri için
-    # kullanılır. Uygulama retrieval yolu ise `src.embeddings` içinde
-    # task_type ve output_dimensionality değerlerini açıkça verir.
-    vertex_embeddings = VertexAIEmbeddings(
-        model_name=settings.EMBEDDING_MODEL,
-        project=settings.GOOGLE_CLOUD_PROJECT,
-        location=settings.GOOGLE_CLOUD_LOCATION,
-    )
+    # kullanılır. Boyut, uygulama retrieval yolu ile (src.embeddings) aynı
+    # tutulur; aksi halde EMBEDDING_DIMENSION=768/1536 yapıldığında RAGAS
+    # 3072-boyutlu vektörlerle çalışıp koleksiyondaki vektörlerle uyumsuz
+    # olur. task_type RAGAS tarafında varsayılan kalır (RAGAS metrikleri
+    # asimetrik retrieval semantiği gerektirmez).
+    embeddings_kwargs = {
+        "model_name": settings.EMBEDDING_MODEL,
+        "project": settings.GOOGLE_CLOUD_PROJECT,
+        "location": settings.GOOGLE_CLOUD_LOCATION,
+    }
+    try:
+        vertex_embeddings = VertexAIEmbeddings(
+            **embeddings_kwargs,
+            dimensions=settings.EMBEDDING_DIMENSION,
+        )
+    except TypeError:
+        logger.warning(
+            "VertexAIEmbeddings 'dimensions' kwarg'ını kabul etmedi; "
+            "RAGAS varsayılan embedding boyutuna düşüyor (uygulama yolu ile "
+            "uyumsuz olabilir). langchain-google-vertexai sürümünü güncelleyin."
+        )
+        vertex_embeddings = VertexAIEmbeddings(**embeddings_kwargs)
     return LangchainLLMWrapper(vertex_llm), LangchainEmbeddingsWrapper(vertex_embeddings)
 
 

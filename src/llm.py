@@ -193,7 +193,10 @@ def is_vertex_available() -> bool:
         return bool(_health_cache["ok"])
     try:
         client = get_vertex_client()
-        next(client.models.list(config={"page_size": 1}), None)
+        # Pager lazily fetches the first page (single HTTP round-trip).
+        # `iter()` + `next()` consumes a single entry without depending on a
+        # version-specific `page_size` config kwarg.
+        next(iter(client.models.list()), None)
         _health_cache.update({"checked_at": now, "ok": True})
         return True
     except Exception as exc:
