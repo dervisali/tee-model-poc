@@ -21,9 +21,6 @@ from __future__ import annotations
 import logging
 from functools import lru_cache
 
-import torch
-from sentence_transformers import SentenceTransformer
-
 from src.config import settings
 
 
@@ -31,12 +28,16 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Model singleton
+# Model singleton — torch ve sentence-transformers ağır olduğundan, model
+# yalnızca gerçekten gömme yapan bir çağrı geldiğinde yüklenir.
 # ---------------------------------------------------------------------------
 
 @lru_cache(maxsize=1)
-def get_embedding_model() -> SentenceTransformer:
+def get_embedding_model():
     """multilingual-e5-large modelini bellek içi tek örnek olarak yükler."""
+    import torch  # local import — testler bu modülü yüklediğinde torch zorunlu olmasın
+    from sentence_transformers import SentenceTransformer
+
     device = "cuda" if torch.cuda.is_available() else (
         "mps" if torch.backends.mps.is_available() else "cpu"
     )

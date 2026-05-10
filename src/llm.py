@@ -21,7 +21,6 @@ import logging
 import time
 from typing import Any
 
-import ollama
 from pydantic import BaseModel
 from tenacity import (
     retry,
@@ -32,6 +31,13 @@ from tenacity import (
 
 from src.config import settings
 
+# `ollama` import isteğe bağlıdır: testler ve hafif yardımcılar bu modülü
+# yüklediğinde Ollama paketi yüklü olmasa bile import etmek hata vermemeli.
+try:
+    import ollama  # type: ignore[import-not-found]
+except ImportError:  # pragma: no cover
+    ollama = None  # type: ignore[assignment]
+
 
 logger = logging.getLogger(__name__)
 
@@ -40,12 +46,16 @@ logger = logging.getLogger(__name__)
 # İstemci (lazy singleton — testlerde monkey-patch edilebilir olsun diye)
 # ---------------------------------------------------------------------------
 
-_client: ollama.Client | None = None
+_client = None  # type: ignore[var-annotated]
 
 
-def get_ollama_client() -> ollama.Client:
+def get_ollama_client():
     """Ortak Ollama istemcisini döndürür; ilk çağrıda oluşturulur."""
     global _client
+    if ollama is None:
+        raise ImportError(
+            "ollama paketi yüklü değil. Lütfen 'pip install ollama' ile kurun."
+        )
     if _client is None:
         _client = ollama.Client(host=settings.OLLAMA_BASE_URL)
     return _client
@@ -77,7 +87,8 @@ def _schema_to_format(schema: type[BaseModel] | dict | None) -> dict | None:
         min=settings.LLM_RETRY_MIN_WAIT,
         max=settings.LLM_RETRY_MAX_WAIT,
     ),
-    retry=retry_if_exception_type((ollama.ResponseError, ConnectionError, TimeoutError)),
+    # ollama.ResponseError import sırasında erişilemiyor olabilir; geniş tut.
+    retry=retry_if_exception_type((ConnectionError, TimeoutError, Exception)),
     reraise=True,
 )
 def generate(
