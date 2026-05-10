@@ -304,7 +304,7 @@ def _load_source_files() -> list[dict]:
 # Ana ingestion
 # ---------------------------------------------------------------------------
 
-def run_ingestion() -> dict:
+def run_ingestion(chunking_strategy: str | None = None) -> dict:
     """
     Tam PDR ingestion boru hattı.
 
@@ -315,7 +315,15 @@ def run_ingestion() -> dict:
 
     Yerel e5-large modeli kullanıldığı için gömme adımı toplu yürütülür;
     eski Gemini kodundaki sleep(1) rate-limit gecikmesi tamamen kaldırılmıştır.
+
+    chunking_strategy: "paragraph" | "semantic" | "fixed".
+      None ise settings.CHUNKING_STRATEGY (varsayılan "paragraph") kullanılır.
     """
+    from src.chunkers import get_parent_chunker
+    strategy = chunking_strategy or settings.CHUNKING_STRATEGY
+    parent_chunker = get_parent_chunker(strategy)
+    logger.info("Ingestion chunking stratejisi: %s", strategy)
+
     child_col = _get_child_collection()
     sources = _load_source_files()
 
@@ -329,10 +337,10 @@ def run_ingestion() -> dict:
     for source_info in sources:
         stem = Path(source_info["filename"]).stem
         full_doc = source_info["text"]
-        parent_chunks = _split_into_parent_chunks(full_doc)
+        parent_chunks = parent_chunker(full_doc)
         logger.info(
-            "%s için %d parent chunk üretildi.",
-            source_info["source"], len(parent_chunks),
+            "%s için %d parent chunk üretildi (strateji=%s).",
+            source_info["source"], len(parent_chunks), strategy,
         )
 
         # Bu kaynağa ait child'ları topla; enrichment kaynak başına yapılır
@@ -361,7 +369,7 @@ def run_ingestion() -> dict:
                     "child_index": c_idx,
                     "parent_id": parent_id,
                     "char_count": len(child_text),
-                    "chunking_strategy": settings.CHUNKING_STRATEGY,
+                    "chunking_strategy": strategy,
                     "original_text": child_text,  # UI gösterimi için
                     "enriched": False,
                 })
@@ -467,13 +475,28 @@ def get_ingestion_status() -> dict:
         return {"collection_size": 0, "explicit_chunks": 0, "tacit_chunks": 0}
 
 
-def insert_new_document(filepath: str, source_type: str) -> dict:
+def insert_new_document(
+    filepath: str,
+    source_type: str,
+    chunking_strategy: str | None = None,
+) -> dict:
     """
     Mevcut koleksiyona tek bir yeni belge ekler. Var olan veriyi silmez.
 
     Phase 1.2.A: ENABLE_CONTEXTUAL_ENRICHMENT açıksa, yeni belgenin tüm
     chunk'ları LLM ile zenginleştirilir; orijinal metinler metadata'ya yazılır.
+
+    Phase 1.2.B: chunking_strategy parametresi ile bu belgeye özel strateji
+    seçilebilir ("paragraph" | "semantic" | "fixed"); None ise
+    settings.CHUNKING_STRATEGY kullanılır.
+
+    Phase 1.2.C: ENABLE_DEDUPLICATION true ise, yeni chunk'lar koleksiyondaki
+    ve birbirinin aynı sayılan vektörlere karşı kontrol edilir.
     """
+    from src.chunkers import get_parent_chunker
+    strategy = chunking_strategy or settings.CHUNKING_STRATEGY
+    parent_chunker = get_parent_chunker(strategy)
+
     if str(BASE_DIR) not in sys.path:
         sys.path.insert(0, str(BASE_DIR))
     from src.anonymizer import anonymize_text  # noqa: WPS433
@@ -486,12 +509,12 @@ def insert_new_document(filepath: str, source_type: str) -> dict:
     anon = anonymize_text(raw_text)
     clean_text = anon["anonymized_text"]
     logger.info(
-        "Yeni belge alındı: %s — %d karakter, %d PII maskelendi.",
-        doc_path.name, len(raw_text), len(anon["mask_log"]),
+        "Yeni belge alındı: %s — %d karakter, %d PII maskelendi, strateji=%s.",
+        doc_path.name, len(raw_text), len(anon["mask_log"]), strategy,
     )
 
     stem = doc_path.stem
-    parent_chunks = _split_into_parent_chunks(clean_text)
+    parent_chunks = parent_chunker(clean_text)
 
     child_col = _get_child_collection()
     parents = _load_parents()
@@ -519,7 +542,7 @@ def insert_new_document(filepath: str, source_type: str) -> dict:
                 "child_index": c_idx,
                 "parent_id": parent_id,
                 "char_count": len(child_text),
-                "chunking_strategy": settings.CHUNKING_STRATEGY,
+                "chunking_strategy": strategy,
                 "original_text": child_text,
                 "enriched": False,
             })
