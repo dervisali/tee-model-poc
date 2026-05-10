@@ -68,28 +68,116 @@ def retrieve_context(
     top_k: int | None = None,
     source_filter: str | None = None,
     distance_threshold: float | None = None,
+    *,
+    search_mode: str | None = None,
+    alpha: float | None = None,
 ) -> list[dict]:
     """
     Sorgu için en alakalı parent parçalarını PDR ile döndürür.
 
-    Parametreler
-    -----------
-    query : str
-        Doğal dil sorgusu (Türkçe).
-    top_k : int | None
-        Dedupe sonrası dönecek parent sayısı; None ise settings.RETRIEVAL_TOP_K.
-    source_filter : str | None
-        "explicit", "tacit" veya None (her ikisi).
-    distance_threshold : float | None
-        Bir child'ın eşleşmiş sayılması için maksimum kosinüs mesafesi;
-        None ise settings.RETRIEVAL_DISTANCE_THRESHOLD.
+    search_mode:
+      - "dense"  : yalnızca yoğun (eski davranış, mesafe eşiği uygulanır)
+      - "sparse" : yalnızca BM25
+      - "hybrid" : RRF füzyonu (alpha None ise) veya ağırlıklı füzyon
+      - None     : settings.ENABLE_HYBRID_SEARCH true ise "hybrid", aksi halde "dense"
 
-    Döner
-    -----
-    list[dict] — Her öğe: child_text, parent_text (== text), source,
-                  filename, parent_id, child_index, distance.
+    Tüm modlarda parent_id bazında dedup uygulanır; her parent için en iyi
+    child saklanır (dense'te en yakın, sparse/hybrid'te en yüksek skor).
+
+    Geriye dönük uyum: distance_threshold yalnızca "dense" modunda anlamlıdır;
+    diğer modlarda yok sayılır (skor tabanlı sıralama uygulanır).
     """
     top_k = top_k if top_k is not None else settings.RETRIEVAL_TOP_K
+    if search_mode is None:
+        search_mode = "hybrid" if settings.ENABLE_HYBRID_SEARCH else "dense"
+
+    parents = _load_parents()
+    if not parents:
+        raise ValueError(
+            "parents.json bulunamadı. Lütfen ingestion adımını tekrar çalıştırın."
+        )
+
+    if search_mode == "dense":
+        return _retrieve_dense(query, top_k, source_filter, distance_threshold, parents)
+
+    # Hibrit veya sparse — child seviyesinde arama, sonra parent_id'ye göre dedup
+    from src.hybrid_search import hybrid_search_children  # geç import (döngüsel sorun yok)
+
+    children = hybrid_search_children(
+        query,
+        top_k=top_k,
+        source_filter=source_filter,
+        search_mode=search_mode,
+        alpha=alpha,
+    )
+    if not children:
+        raise ValueError("Sorgu için hiçbir sonuç döndürülmedi.")
+
+    seen_parents: dict[str, dict] = {}
+    for child in children:
+        meta = child["metadata"]
+        parent_id = meta.get("parent_id", "")
+        if not parent_id or parent_id not in parents:
+            continue
+        # Hibritte yüksek skor iyi; mesafe ile uyumlu olsun diye distance = 1 - score saklanır
+        score = child["score"]
+        pseudo_distance = max(0.0, 1.0 - score) if score >= 0 else 1.0
+        if parent_id not in seen_parents or score > seen_parents[parent_id]["score"]:
+            seen_parents[parent_id] = {
+                "child_text": child["document"],
+                "child_index": meta.get("child_index", -1),
+                "distance": round(pseudo_distance, 4),
+                "score": round(score, 6),
+                "dense_distance": child.get("dense_distance"),
+                "bm25_score": child.get("bm25_score"),
+                "parent_id": parent_id,
+                "source": meta.get("source", "bilinmiyor"),
+                "filename": meta.get("filename", "bilinmiyor"),
+            }
+
+    ordered = sorted(seen_parents.values(), key=lambda r: r["score"], reverse=True)[:top_k]
+
+    formatted = []
+    for item in ordered:
+        parent_data = parents[item["parent_id"]]
+        parent_text = parent_data["text"]
+        formatted.append({
+            "child_text": item["child_text"],
+            "parent_text": parent_text,
+            "text": parent_text,
+            "source": item["source"],
+            "filename": item["filename"],
+            "parent_id": item["parent_id"],
+            "child_index": item["child_index"],
+            "distance": item["distance"],
+            "score": item["score"],
+            "dense_distance": item["dense_distance"],
+            "bm25_score": item["bm25_score"],
+            "search_mode": search_mode,
+        })
+
+    logger.info(
+        "Hibrit retrieval tamamlandı",
+        extra={
+            "event": "retrieval_complete",
+            "query_len": len(query),
+            "filter": source_filter or "all",
+            "results": len(formatted),
+            "search_mode": search_mode,
+            "top_score": formatted[0]["score"] if formatted else None,
+        },
+    )
+    return formatted
+
+
+def _retrieve_dense(
+    query: str,
+    top_k: int,
+    source_filter: str | None,
+    distance_threshold: float | None,
+    parents: dict,
+) -> list[dict]:
+    """Eski yoğun-yalnız retrieval mantığı; geriye uyumluluk için korunur."""
     threshold = distance_threshold if distance_threshold is not None else settings.RETRIEVAL_DISTANCE_THRESHOLD
 
     collection = _get_chroma_collection()
@@ -98,15 +186,8 @@ def retrieve_context(
             "Vektör veritabanı boş. Lütfen önce 'Veritabanını Yenile' adımını çalıştırın."
         )
 
-    parents = _load_parents()
-    if not parents:
-        raise ValueError(
-            "parents.json bulunamadı. Lütfen ingestion adımını tekrar çalıştırın."
-        )
-
     query_vector = _embed_query(query)
     where_clause = {"source": source_filter} if source_filter else None
-
     query_kwargs: dict = {
         "query_embeddings": [query_vector],
         "n_results": min(top_k * 3, collection.count()),
@@ -159,15 +240,17 @@ def retrieve_context(
             "parent_id": item["parent_id"],
             "child_index": item["child_index"],
             "distance": item["distance"],
+            "search_mode": "dense",
         })
 
     logger.info(
-        "Retrieval tamamlandı",
+        "Dense retrieval tamamlandı",
         extra={
             "event": "retrieval_complete",
             "query_len": len(query),
             "filter": source_filter or "all",
             "results": len(formatted),
+            "search_mode": "dense",
             "top_distance": formatted[0]["distance"] if formatted else None,
         },
     )

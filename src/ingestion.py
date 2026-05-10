@@ -376,6 +376,11 @@ def run_ingestion() -> dict:
         )
         logger.info("ChromaDB'ye yazıldı: %d child.", len(pending_ids))
 
+    # Hibrit aramayı destekleyen BM25 indeksi: dense yazımı bittikten sonra
+    # her zaman yeniden inşa edilir (tutarlılık için).
+    from src.hybrid_search import rebuild_bm25_index_from_collection
+    rebuild_bm25_index_from_collection()
+
     summary = {
         "total_chunks": explicit_children + tacit_children,
         "explicit_chunks": explicit_children,
@@ -391,7 +396,7 @@ def run_ingestion() -> dict:
 
 
 def clear_and_reingest() -> dict:
-    """tee_children koleksiyonunu ve parents.json'u silip baştan ingest eder."""
+    """tee_children koleksiyonunu, parents.json'u ve BM25 indeksini silip baştan ingest eder."""
     chroma_client = chromadb.PersistentClient(path=str(CHROMA_DIR))
     try:
         chroma_client.delete_collection(CHILD_COLLECTION_NAME)
@@ -401,6 +406,11 @@ def clear_and_reingest() -> dict:
     if PARENTS_JSON.exists():
         PARENTS_JSON.unlink()
         logger.info("parents.json silindi.")
+
+    from src.hybrid_search import BM25_INDEX_PATH
+    if BM25_INDEX_PATH.exists():
+        BM25_INDEX_PATH.unlink()
+        logger.info("BM25 indeksi silindi.")
 
     return run_ingestion()
 
@@ -489,6 +499,10 @@ def insert_new_document(filepath: str, source_type: str) -> dict:
             documents=pending_texts,
             metadatas=pending_metas,
         )
+
+    # BM25 indeksi her insert sonrası yeniden inşa edilir.
+    from src.hybrid_search import rebuild_bm25_index_from_collection
+    rebuild_bm25_index_from_collection()
 
     summary = {
         "new_chunks": len(pending_ids),
