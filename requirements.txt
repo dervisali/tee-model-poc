@@ -26,6 +26,9 @@ structlog>=24.1
 
 # Evaluation (Phase 2.1 — RAGAS)
 ragas>=0.2
+langchain-ollama>=0.2
+langchain-huggingface>=0.1
+datasets>=2.18
 
 # Tests
 pytest>=8.0
