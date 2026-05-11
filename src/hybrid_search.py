@@ -49,7 +49,7 @@ BM25_INDEX_PATH = settings.CHROMA_DIR / "bm25_index.pkl"
 # Fransızca yol: lowercase + apostrof bölme (élision) + stop-words filtresi +
 #                Snowball French stemmer.
 #
-# Aktif dil settings.CORPUS_LANGUAGE üzerinden gelir; _tokenize'a açıkça da
+# Aktif dil settings.CORPUS_PRIMARY_LANGUAGE üzerinden gelir; _tokenize'a açıkça da
 # verilebilir. Tokenizer indeks inşası ve sorgu zamanı arasında SİMETRİK
 # olmalıdır; aksi halde BM25 yanıltıcı sonuçlar verir.
 
@@ -122,7 +122,7 @@ def _tokenize_fr(text: str) -> list[str]:
 
 def _tokenize(text: str, language: str | None = None) -> list[str]:
     """Aktif dilin tokenizer'ına yönlendirir. `language` None ise settings'ten alır."""
-    lang = (language or settings.CORPUS_LANGUAGE).lower()
+    lang = (language or settings.CORPUS_PRIMARY_LANGUAGE).lower()
     if lang == "fr":
         return _tokenize_fr(text)
     return _tokenize_tr(text)
@@ -173,7 +173,7 @@ class BM25Index:
         Sorgu için en alakalı top_k kaydı (id, score, document, metadata)
         olarak döndürür. Source filtresi metadata üzerinden uygulanır.
 
-        `language` None ise settings.CORPUS_LANGUAGE; tokenizer indeks ile
+        `language` None ise settings.CORPUS_PRIMARY_LANGUAGE; tokenizer indeks ile
         simetrik olmalıdır.
         """
         if self.bm25 is None or not self.ids:
@@ -237,7 +237,7 @@ def rebuild_bm25_index_from_collection(language: str | None = None) -> BM25Index
     Aktif tee_children koleksiyonundan BM25 indeksini yeniden kurar.
     Ingestion'dan sonra çağrılmalıdır.
 
-    `language` None ise settings.CORPUS_LANGUAGE kullanılır. İndeks pickle'ı
+    `language` None ise settings.CORPUS_PRIMARY_LANGUAGE kullanılır. İndeks pickle'ı
     dile pinlenmez (search ile aynı setting'i okuyacak); ancak log'a yazılır.
     """
     import chromadb  # local to avoid circular ingestion import at module load
@@ -255,7 +255,7 @@ def rebuild_bm25_index_from_collection(language: str | None = None) -> BM25Index
         logger.warning("BM25 inşa: koleksiyon boş, indeks atlandı.")
         return None
 
-    active_language = (language or settings.CORPUS_LANGUAGE).lower()
+    active_language = (language or settings.CORPUS_PRIMARY_LANGUAGE).lower()
     data = col.get(include=["documents", "metadatas"])
     ids = data["ids"]
     documents = data["documents"]
@@ -347,6 +347,7 @@ def hybrid_search_children(
     search_mode: str = "hybrid",
     alpha: float | None = None,
     over_fetch: int = 3,
+    bm25_query: str | None = None,
 ) -> list[dict]:
     """
     BM25 + dense hibrit arama; child seviyesinde sıralı sonuç döndürür.
@@ -355,9 +356,15 @@ def hybrid_search_children(
                   "sparse" : yalnızca BM25
                   "hybrid" : füzyon (alpha None ise RRF, değilse ağırlıklı)
 
+    bm25_query : Cross-lingual çeviri varyantı. None ise BM25 yolu da `query`
+                 ile çalışır. Türkçe sorgu + Fransızca korpus durumunda
+                 retrieve_context burayı çeviri ile besler; dense yine
+                 orijinal sorgu üzerinden gider (multilingual embedding).
+
     Döner — her öğe: {id, document, metadata, score, dense_distance, bm25_score}
     """
     fetch_k = top_k * over_fetch
+    sparse_query = bm25_query if bm25_query is not None else query
 
     dense_results = []
     bm25_results: list[tuple[str, float, str, dict]] = []
@@ -370,7 +377,7 @@ def hybrid_search_children(
         if bm25_index is None:
             logger.warning("BM25 indeksi yok; sparse atlanıyor. Ingestion'ı yeniden çalıştırın.")
         else:
-            bm25_results = bm25_index.search(query, fetch_k, source_filter=source_filter)
+            bm25_results = bm25_index.search(sparse_query, fetch_k, source_filter=source_filter)
 
     if search_mode == "dense":
         return [

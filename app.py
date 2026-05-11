@@ -173,6 +173,8 @@ _DEFAULTS = {
     # Prompt optimizer
     "optimizer_results": None,
     "optimizer_generator": None,
+    # Phase 8 — generated output language (TR by default for Turkish examiners).
+    "output_language": settings.OUTPUT_LANGUAGE,
 }
 
 for key, val in _DEFAULTS.items():
@@ -182,6 +184,19 @@ for key, val in _DEFAULTS.items():
 # ---------------------------------------------------------------------------
 # Header
 # ---------------------------------------------------------------------------
+
+# Sidebar — output language toggle (Phase 8).
+with st.sidebar:
+    st.markdown("### Çıktı Dili / Langue de sortie")
+    lang_choice = st.radio(
+        "Üretici dili",
+        options=["tr", "fr"],
+        format_func=lambda v: "Türkçe (TR)" if v == "tr" else "Français (FR)",
+        index=0 if st.session_state.get("output_language", "tr") == "tr" else 1,
+        key="output_language_radio",
+        help="Süreç haritası / Hata kartları / Terim sözlüğü / Simülasyon çıktısının dili. Retrieval kaynak korpusu (FR) her durumda aynıdır.",
+    )
+    st.session_state["output_language"] = lang_choice
 
 st.title("🏛️ TEE-Model — Tacit-Explicit Entegre Eğitim Sistemi")
 st.caption(
@@ -319,7 +334,10 @@ with tabs[1]:
     if st.button("Süreç Haritası Oluştur", key="gen_process_map"):
         from src.generators import generate_process_map
 
-        result, error = _run_via_queue("Süreç haritası oluşturuluyor", generate_process_map)
+        result, error = _run_via_queue(
+            "Süreç haritası oluşturuluyor", generate_process_map,
+            language=st.session_state.get("output_language", "tr"),
+        )
         if error:
             st.error(f"Hata: {error}")
         else:
@@ -348,7 +366,10 @@ with tabs[1]:
     if st.button("Hata Kartlarını Oluştur", key="gen_error_cards"):
         from src.generators import generate_error_cards
 
-        result, error = _run_via_queue("Hata kartları oluşturuluyor", generate_error_cards)
+        result, error = _run_via_queue(
+            "Hata kartları oluşturuluyor", generate_error_cards,
+            language=st.session_state.get("output_language", "tr"),
+        )
         if error:
             st.error(f"Hata: {error}")
         else:
@@ -381,7 +402,10 @@ with tabs[1]:
     if st.button("Terim Sözlüğü Oluştur", key="gen_glossary"):
         from src.generators import generate_glossary
 
-        result, error = _run_via_queue("Terim sözlüğü oluşturuluyor", generate_glossary)
+        result, error = _run_via_queue(
+            "Terim sözlüğü oluşturuluyor", generate_glossary,
+            language=st.session_state.get("output_language", "tr"),
+        )
         if error:
             st.error(f"Hata: {error}")
         else:
@@ -414,7 +438,10 @@ with tabs[2]:
     if st.button("🎲 Yeni Senaryo Oluştur", key="gen_simulation"):
         from src.generators import generate_simulation_scenario
 
-        result, error = _run_via_queue("Senaryo oluşturuluyor", generate_simulation_scenario)
+        result, error = _run_via_queue(
+            "Senaryo oluşturuluyor", generate_simulation_scenario,
+            language=st.session_state.get("output_language", "tr"),
+        )
         if error:
             st.error(f"Hata: {error}")
         else:

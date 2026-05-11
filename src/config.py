@@ -92,11 +92,29 @@ class Settings(BaseSettings):
         description="'paragraph' | 'semantic' | 'fixed'. Mevcut belge davranışı = paragraph.",
     )
 
-    CORPUS_LANGUAGE: Literal["fr", "tr"] = Field(
+    CORPUS_PRIMARY_LANGUAGE: Literal["fr", "tr"] = Field(
         default="fr",
         description=(
-            "Aktif korpusun dili. BM25 tokenizer ve stop-word seçimi bu değere "
-            "göre yapılır. DELF/DALF korpusu için 'fr', Türkçe mevzuat için 'tr'."
+            "Korpus içeriğinin dili. BM25 indeks tokenizer'ı ve stop-word seçimi "
+            "bu değere göre yapılır. DELF/DALF için 'fr', Türkçe mevzuat için 'tr'."
+        ),
+    )
+
+    QUERY_LANGUAGE_AUTO_DETECT: bool = Field(
+        default=True,
+        description=(
+            "Açıkken sorgu dili heuristic ile tespit edilir; korpus dilinden "
+            "farklıysa BM25 yolu için sorgu hedef korpus diline çevrilir. "
+            "Dense yol her durumda orijinal sorgu ile çalışır (multilingual embedding)."
+        ),
+    )
+
+    OUTPUT_LANGUAGE: Literal["tr", "fr"] = Field(
+        default="tr",
+        description=(
+            "Üretici fonksiyonların (process_map, error_cards, glossary, "
+            "simulation) varsayılan çıktı dili. UI sidebar toggle bu değeri "
+            "geçersiz kılabilir."
         ),
     )
 

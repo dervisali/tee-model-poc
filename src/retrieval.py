@@ -100,6 +100,24 @@ def retrieve_context(
     if search_mode == "dense":
         return _retrieve_dense(query, top_k, source_filter, distance_threshold, parents)
 
+    # Phase 3.5: cross-lingual sorgu genişletme — yalnızca BM25 yolunu etkiler.
+    # Dense yol orijinal sorgu üzerinden gider (multilingual embedding).
+    bm25_query: str | None = None
+    if settings.QUERY_LANGUAGE_AUTO_DETECT and search_mode in ("sparse", "hybrid"):
+        from src.query_translator import detect_query_language, translate_query
+        query_lang = detect_query_language(query)
+        if query_lang != settings.CORPUS_PRIMARY_LANGUAGE:
+            bm25_query = translate_query(query, target_language=settings.CORPUS_PRIMARY_LANGUAGE)
+            logger.info(
+                "Cross-lingual BM25",
+                extra={
+                    "event": "cross_lingual_translation",
+                    "source_lang": query_lang,
+                    "target_lang": settings.CORPUS_PRIMARY_LANGUAGE,
+                    "translated_preview": bm25_query[:80],
+                },
+            )
+
     # Hibrit veya sparse — child seviyesinde arama, sonra parent_id'ye göre dedup
     from src.hybrid_search import hybrid_search_children  # geç import (döngüsel sorun yok)
 
@@ -109,6 +127,7 @@ def retrieve_context(
         source_filter=source_filter,
         search_mode=search_mode,
         alpha=alpha,
+        bm25_query=bm25_query,
     )
     if not children:
         raise ValueError("Sorgu için hiçbir sonuç döndürülmedi.")
