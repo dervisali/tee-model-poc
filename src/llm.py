@@ -54,23 +54,39 @@ _HEALTH_CACHE_TTL_SECONDS = 300.0
 _client = None  # type: ignore[var-annotated]
 
 
-def get_vertex_client():
-    """Ortak Vertex AI Gemini istemcisini döndürür; ilk çağrıda oluşturulur."""
+def get_genai_client():
+    """
+    Ortak google-genai istemcisini döndürür. INFERENCE_BACKEND'e göre
+    Vertex AI (ADC + project + location) veya public Gemini API (api_key)
+    moduna geçer. İlk çağrıda oluşturulup süreç ömrü kadar tutulur.
+    """
     global _client
     if genai is None or HttpOptions is None:
         raise ImportError(
             "google-genai paketi yüklü değil. Lütfen 'pip install google-genai' ile kurun."
         )
     if _client is None:
-        kwargs = {
-            "vertexai": True,
-            "location": settings.GOOGLE_CLOUD_LOCATION,
-            "http_options": HttpOptions(api_version="v1"),
-        }
-        if settings.GOOGLE_CLOUD_PROJECT:
-            kwargs["project"] = settings.GOOGLE_CLOUD_PROJECT
-        _client = genai.Client(**kwargs)
+        backend = settings.INFERENCE_BACKEND
+        if backend == "public_genai":
+            if not settings.GOOGLE_API_KEY:
+                raise RuntimeError(
+                    "INFERENCE_BACKEND='public_genai' için GOOGLE_API_KEY gerekli."
+                )
+            _client = genai.Client(api_key=settings.GOOGLE_API_KEY)
+        else:  # vertex
+            kwargs = {
+                "vertexai": True,
+                "location": settings.GOOGLE_CLOUD_LOCATION,
+                "http_options": HttpOptions(api_version="v1"),
+            }
+            if settings.GOOGLE_CLOUD_PROJECT:
+                kwargs["project"] = settings.GOOGLE_CLOUD_PROJECT
+            _client = genai.Client(**kwargs)
     return _client
+
+
+# Geriye dönük uyumluluk için takma ad — embeddings.py ve diğer modüller bunu kullanır.
+get_vertex_client = get_genai_client
 
 
 # ---------------------------------------------------------------------------

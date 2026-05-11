@@ -39,6 +39,23 @@ class Settings(BaseSettings):
         default=3072,
         description="gemini-embedding-001 output_dimensionality değeri.",
     )
+    INFERENCE_BACKEND: Literal["vertex", "public_genai"] = Field(
+        default="vertex",
+        description=(
+            "Hangi Gemini arka ucunun kullanılacağı. 'vertex' Vertex AI üzerinden "
+            "ADC ile, 'public_genai' ise GOOGLE_API_KEY ile genai.google.com'a çağrı "
+            "yapar. Aynı google-genai SDK her ikisini destekler."
+        ),
+    )
+
+    GOOGLE_API_KEY: str | None = Field(
+        default=None,
+        description=(
+            "INFERENCE_BACKEND='public_genai' iken kullanılan public Gemini API "
+            "anahtarı. Vertex modunda yok sayılır."
+        ),
+    )
+
     GOOGLE_CLOUD_PROJECT: str | None = Field(
         default=None,
         description="Vertex AI projesi. Boşsa Google Gen AI SDK ortam değişkenini kullanır.",
