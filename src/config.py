@@ -92,6 +92,14 @@ class Settings(BaseSettings):
         description="'paragraph' | 'semantic' | 'fixed'. Mevcut belge davranışı = paragraph.",
     )
 
+    CORPUS_LANGUAGE: Literal["fr", "tr"] = Field(
+        default="fr",
+        description=(
+            "Aktif korpusun dili. BM25 tokenizer ve stop-word seçimi bu değere "
+            "göre yapılır. DELF/DALF korpusu için 'fr', Türkçe mevzuat için 'tr'."
+        ),
+    )
+
     # -------------------------------------------------------------------
     # LLM çağrı parametreleri
     # -------------------------------------------------------------------

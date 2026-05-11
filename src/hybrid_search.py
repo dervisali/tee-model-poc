@@ -26,6 +26,8 @@ from __future__ import annotations
 import logging
 import pickle
 import re
+import unicodedata
+from functools import lru_cache
 from pathlib import Path
 
 from rank_bm25 import BM25Okapi
@@ -41,21 +43,97 @@ BM25_INDEX_PATH = settings.CHROMA_DIR / "bm25_index.pkl"
 
 
 # ---------------------------------------------------------------------------
-# Türkçe odaklı basit tokenizasyon
+# Dile-duyarlı tokenizasyon
 # ---------------------------------------------------------------------------
+# Türkçe yol:   küçük harf + Türkçe karakter regex'i, stemmer YOK.
+# Fransızca yol: lowercase + apostrof bölme (élision) + stop-words filtresi +
+#                Snowball French stemmer.
+#
+# Aktif dil settings.CORPUS_LANGUAGE üzerinden gelir; _tokenize'a açıkça da
+# verilebilir. Tokenizer indeks inşası ve sorgu zamanı arasında SİMETRİK
+# olmalıdır; aksi halde BM25 yanıltıcı sonuçlar verir.
 
-_TOKEN_RE = re.compile(r"[\wçğıöşüÇĞİÖŞÜ]+", re.UNICODE)
+_TURKISH_TOKEN_RE = re.compile(r"[\wçğıöşüÇĞİÖŞÜ]+", re.UNICODE)
+
+# Fransızca harfler + rakamlar; aksanlı karakterler korunur (Snowball aksanı bekler).
+_FRENCH_TOKEN_RE = re.compile(r"[a-zàâäéèêëïîôöùûüœæç0-9]+", re.IGNORECASE)
+# Düz ve eğri apostrof — élision sınırı.
+_APOSTROPHE_RE = re.compile(r"[’']")
+
+# Sık karşılaşılan Fransızca fonksiyonel sözcükler. BM25 için sinyalsizdir.
+_FRENCH_STOPWORDS: frozenset[str] = frozenset({
+    # Tanımlıklar
+    "le", "la", "les", "un", "une", "des", "du", "de", "d",
+    "au", "aux", "à",
+    # Zamirler
+    "je", "j", "tu", "il", "elle", "on", "nous", "vous", "ils", "elles",
+    "me", "m", "te", "se", "s", "lui", "leur", "leurs",
+    "ce", "c", "ça", "cet", "cette", "ces",
+    "qui", "que", "qu", "quoi", "dont", "où",
+    "y", "en",
+    # İyelik
+    "mon", "ma", "mes", "ton", "ta", "tes", "son", "sa", "ses",
+    "notre", "nos", "votre", "vos",
+    # Bağlaçlar / olumsuzlama
+    "et", "ou", "ni", "mais", "donc", "or", "car",
+    "si", "ne", "n", "pas", "plus", "moins",
+    # Edatlar
+    "pour", "par", "sur", "sous", "dans", "avec", "sans", "vers",
+    "entre", "chez", "depuis", "pendant",
+    # Yardımcı fiil sık formları
+    "est", "sont", "était", "étaient", "sera", "seront", "été", "être",
+    "a", "ont", "avait", "avaient", "aura", "auront", "avoir", "eu",
+    "fait", "font", "faire",
+    # Niceleyiciler / işaret sözcükleri
+    "tout", "tous", "toute", "toutes", "même", "autre", "autres",
+    "très", "trop", "comme", "comment", "quand",
+})
 
 
-def _tokenize(text: str) -> list[str]:
+@lru_cache(maxsize=1)
+def _get_french_stemmer():
+    """Snowball French stemmer'ı tek seferlik yükler. nltk veri indirme gerektirmez."""
+    from nltk.stem.snowball import FrenchStemmer  # type: ignore[import-untyped]
+    return FrenchStemmer()
+
+
+def _tokenize_tr(text: str) -> list[str]:
+    """Türkçe: küçük harf + Türkçe karakter farkındalığı. Stemmer yok."""
+    return [t.lower() for t in _TURKISH_TOKEN_RE.findall(text)]
+
+
+def _tokenize_fr(text: str) -> list[str]:
     """
-    Hafif Türkçe tokenizasyon: küçük harf + Türkçe karakter farkındalığı.
-
-    Stemmer KULLANILMAZ (gerek yok): e5 dense yolu zaten anlamsal benzerliği
-    yakalar; BM25'in görevi birebir terim eşleşmesini güçlendirmektir. Ek
-    morfolojik analiz hatası eklemek doğruluğu azaltır.
+    Fransızca: élision için apostrofu boşluğa çevir, küçük harfle tokenize et,
+    stop-word'leri filtrele ve Snowball French stemmer uygula. Aksanlar korunur.
     """
-    return [t.lower() for t in _TOKEN_RE.findall(text)]
+    lowered = _APOSTROPHE_RE.sub(" ", text.lower())
+    raw_tokens = _FRENCH_TOKEN_RE.findall(lowered)
+    stemmer = _get_french_stemmer()
+    out: list[str] = []
+    for tok in raw_tokens:
+        if len(tok) <= 1:
+            continue
+        if tok in _FRENCH_STOPWORDS:
+            continue
+        out.append(stemmer.stem(tok))
+    return out
+
+
+def _tokenize(text: str, language: str | None = None) -> list[str]:
+    """Aktif dilin tokenizer'ına yönlendirir. `language` None ise settings'ten alır."""
+    lang = (language or settings.CORPUS_LANGUAGE).lower()
+    if lang == "fr":
+        return _tokenize_fr(text)
+    return _tokenize_tr(text)
+
+
+def _strip_accents(s: str) -> str:
+    """NFKD normalize + birleştirici işaret stripping. Yardımcı (şu an iç kullanım)."""
+    return "".join(
+        c for c in unicodedata.normalize("NFKD", s)
+        if not unicodedata.combining(c)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -89,14 +167,18 @@ class BM25Index:
         query: str,
         top_k: int,
         source_filter: str | None = None,
+        language: str | None = None,
     ) -> list[tuple[str, float, str, dict]]:
         """
         Sorgu için en alakalı top_k kaydı (id, score, document, metadata)
         olarak döndürür. Source filtresi metadata üzerinden uygulanır.
+
+        `language` None ise settings.CORPUS_LANGUAGE; tokenizer indeks ile
+        simetrik olmalıdır.
         """
         if self.bm25 is None or not self.ids:
             return []
-        query_tokens = _tokenize(query)
+        query_tokens = _tokenize(query, language=language)
         if not query_tokens:
             return []
 
@@ -150,10 +232,13 @@ class BM25Index:
 # İndeks inşası — ingestion'dan çağrılır
 # ---------------------------------------------------------------------------
 
-def rebuild_bm25_index_from_collection() -> BM25Index | None:
+def rebuild_bm25_index_from_collection(language: str | None = None) -> BM25Index | None:
     """
     Aktif tee_children koleksiyonundan BM25 indeksini yeniden kurar.
     Ingestion'dan sonra çağrılmalıdır.
+
+    `language` None ise settings.CORPUS_LANGUAGE kullanılır. İndeks pickle'ı
+    dile pinlenmez (search ile aynı setting'i okuyacak); ancak log'a yazılır.
     """
     import chromadb  # local to avoid circular ingestion import at module load
     client = chromadb.PersistentClient(path=str(settings.CHROMA_DIR))
@@ -170,15 +255,16 @@ def rebuild_bm25_index_from_collection() -> BM25Index | None:
         logger.warning("BM25 inşa: koleksiyon boş, indeks atlandı.")
         return None
 
+    active_language = (language or settings.CORPUS_LANGUAGE).lower()
     data = col.get(include=["documents", "metadatas"])
     ids = data["ids"]
     documents = data["documents"]
     metadatas = data["metadatas"]
-    tokens = [_tokenize(doc) for doc in documents]
+    tokens = [_tokenize(doc, language=active_language) for doc in documents]
 
     index = BM25Index(ids=ids, tokens=tokens, documents=documents, metadatas=metadatas)
     index.save()
-    logger.info("BM25 indeksi inşa edildi: %d child.", len(ids))
+    logger.info("BM25 indeksi inşa edildi: %d child, language=%s.", len(ids), active_language)
     return index
 
 

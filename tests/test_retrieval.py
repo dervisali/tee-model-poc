@@ -15,11 +15,11 @@ pytestmark = pytest.mark.requires_bm25
 
 
 class TestBM25Tokenizer:
-    """Türkçe karakter farkındalığı ve küçük harf normalizasyonu."""
+    """Dile duyarlı tokenizasyon. Türkçe testleri language='tr' ile, Fransızca testleri language='fr' ile."""
 
     def test_turkce_karakterler_korunur(self):
         from src.hybrid_search import _tokenize
-        tokens = _tokenize("Maaş Mutemedi: kümülatif matrah hesabı")
+        tokens = _tokenize("Maaş Mutemedi: kümülatif matrah hesabı", language="tr")
         assert "maaş" in tokens
         assert "mutemedi" in tokens
         assert "kümülatif" in tokens
@@ -27,11 +27,29 @@ class TestBM25Tokenizer:
 
     def test_tokenizer_bos_metin(self):
         from src.hybrid_search import _tokenize
-        assert _tokenize("") == []
+        assert _tokenize("", language="tr") == []
+        assert _tokenize("", language="fr") == []
 
     def test_tokenizer_kucuk_harf(self):
         from src.hybrid_search import _tokenize
-        assert _tokenize("İCRA Kesintisi") == ["i̇cra", "kesintisi"] or _tokenize("İCRA Kesintisi") == ["icra", "kesintisi"]
+        result = _tokenize("İCRA Kesintisi", language="tr")
+        assert result in (["i̇cra", "kesintisi"], ["icra", "kesintisi"])
+
+    def test_fransizca_elision_ve_stop_words(self):
+        from src.hybrid_search import _tokenize
+        tokens = _tokenize("l'examen de la production écrite", language="fr")
+        # l, de, la stop-words; examen ve production écrite stem'lenir
+        assert "examen" in tokens
+        assert "product" in tokens  # Snowball French: production -> product
+        assert "écrit" in tokens     # écrite -> écrit
+        assert "la" not in tokens
+        assert "de" not in tokens
+
+    def test_fransizca_stemmer_inflectional(self):
+        from src.hybrid_search import _tokenize
+        # Aynı kökten gelen iki form aynı stem'i üretmeli
+        assert _tokenize("corrigés", language="fr") == _tokenize("corriger", language="fr")
+        assert _tokenize("correcteurs", language="fr") == _tokenize("correcteur", language="fr")
 
 
 class TestRRFFuzyonu:
