@@ -350,7 +350,7 @@ def run_ingestion(chunking_strategy: str | None = None) -> dict:
 
     for doc_load in documents:
         base_meta = doc_load.metadata
-        safe_stem = _sanitize_id(Path(base_meta.source_filename).stem)
+        safe_stem = _sanitize_id(base_meta.source_filename)
 
         # Bu belgeye ait child'ları topla; enrichment belge başına yapılır,
         # full_text tüm sayfaların birleştirilmiş halidir.
