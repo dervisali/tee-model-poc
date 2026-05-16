@@ -101,22 +101,32 @@ def embed_passages(texts: list[str], batch_size: int = 100) -> list[list[float]]
     """
     Toplu belge gömeleri — ingestion sırasında verim için kullanılır.
 
-    Hem Vertex AI hem de public Gemini API RPM kotalarına tabidir
-    (yeni Vertex projeleri 60 RPM gibi düşük varsayılan kotayla gelir).
-    Batch aralarında kısa bekleme her iki backend için uygulanır;
-    public_genai daha sıkı kota için daha uzun bekler.
+    Hem Vertex AI hem de public Gemini API RPM kotalarına tabidir.
+    Yeni Vertex projeleri ~40 RPM gibi düşük varsayılan kotayla gelir;
+    bu nedenle sabit sleep yerine gerçek bir RPM limiti uygulanır:
+    her batch çağrısı arasında en az (60 / rpm_cap) saniye beklenir.
     """
     import time
-    sleep_between_batches = 4.5 if settings.INFERENCE_BACKEND == "public_genai" else 1.5
+
+    # Conservative cap: well below observed ~40 RPM default quota.
+    # public_genai free tier is tighter; vertex new-project default ~40 RPM.
+    rpm_cap = 12 if settings.INFERENCE_BACKEND == "public_genai" else 25
+    min_interval = 60.0 / rpm_cap  # seconds that must elapse between batch calls
+
     output: list[list[float]] = []
     total_batches = (len(texts) + batch_size - 1) // batch_size
+    last_call_at: float = 0.0
+
     for i, start in enumerate(range(0, len(texts), batch_size)):
-        if i > 0 and sleep_between_batches > 0:
-            time.sleep(sleep_between_batches)
+        elapsed = time.monotonic() - last_call_at
+        wait = min_interval - elapsed
+        if wait > 0:
+            time.sleep(wait)
+        last_call_at = time.monotonic()
         output.extend(
             _embed(texts[start:start + batch_size], task_type="RETRIEVAL_DOCUMENT")
         )
-        if total_batches > 10 and (i + 1) % 20 == 0:
+        if total_batches > 10 and (i + 1) % 10 == 0:
             logger.info("Embedding progress: %d/%d batch", i + 1, total_batches)
     return output
 
