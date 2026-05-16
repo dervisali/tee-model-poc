@@ -199,6 +199,64 @@ def generate(
 
 
 # ---------------------------------------------------------------------------
+# Akış (streaming) üretim
+# ---------------------------------------------------------------------------
+
+def generate_stream(
+    prompt: str,
+    *,
+    system: str | None = None,
+    model: str | None = None,
+    temperature: float | None = None,
+):
+    """
+    Akış (streaming) LLM çağrısı — yanıtı metin parçaları olarak yield eder.
+
+    `generate()` ile aynı Vertex AI / public Gemini arka ucunu kullanır; ancak
+    yanıt parça parça gelir ve yapılandırılmış JSON (response_schema)
+    desteklemez — etkileşimli sohbet için tasarlanmıştır (src/chatbot.py).
+
+    Yeniden deneme (retry) UYGULANMAZ: akış başladıktan sonra yeniden deneme
+    daha önce yield edilen parçaları tekrarlardı. Geçici hatalarda çağıran
+    tarafın (chatbot) istisnayı yakalayıp dostane bir mesaj göstermesi beklenir.
+
+    Yield
+    -----
+    str — modelin yanıtının ardışık metin parçaları.
+    """
+    client = get_vertex_client()
+    config: dict[str, Any] = {
+        "temperature": temperature if temperature is not None else settings.LLM_TEMPERATURE,
+    }
+    if system:
+        config["system_instruction"] = system
+
+    started = time.perf_counter()
+    total_length = 0
+    stream = client.models.generate_content_stream(
+        model=model or settings.GENERATION_MODEL,
+        contents=prompt,
+        config=config,
+    )
+    for chunk in stream:
+        text = chunk.text or ""
+        if text:
+            total_length += len(text)
+            yield text
+
+    elapsed_ms = (time.perf_counter() - started) * 1000
+    logger.info(
+        "LLM akış üretimi tamamlandı",
+        extra={
+            "event": "llm_stream_complete",
+            "model": model or settings.GENERATION_MODEL,
+            "duration_ms": round(elapsed_ms, 1),
+            "response_length": total_length,
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
 # Sağlık kontrolü
 # ---------------------------------------------------------------------------
 

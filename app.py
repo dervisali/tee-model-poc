@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from src.config import settings  # noqa: E402
 from src.logging_config import configure_logging  # noqa: E402
 from src.job_queue import submit_job, wait_for_job, queue_size  # noqa: E402
+from src.chatbot import chat_stream, MAX_TURNS  # noqa: E402
 
 configure_logging()
 logger = logging.getLogger(__name__)
@@ -185,6 +186,11 @@ _DEFAULTS = {
     "optimizer_generator": None,
     # Phase 8 — generated output language (TR by default for Turkish examiners).
     "output_language": settings.OUTPUT_LANGUAGE,
+    # Tab 7 — chatbot conversation state.
+    # chat_history: [{"role": "user"|"assistant", "content": str, "sources": list}]
+    "chat_history": [],
+    "chat_turns": 0,
+    "chat_inject": None,   # set by example-prompt buttons; consumed once on next rerun
 }
 
 for key, val in _DEFAULTS.items():
@@ -222,6 +228,7 @@ tabs = st.tabs(
         "✅ Uzman Onay Paneli",
         "🔬 Prompt Optimizer",
         "🗄️ Veritabanı Gezgini",
+        "💬 Asistan",
     ]
 )
 
@@ -1037,3 +1044,146 @@ with tabs[5]:
                 if chunk.get("enriched"):
                     with st.expander("🔬 Gömme için kullanılan zenginleştirilmiş metin"):
                         st.code(chunk["embedded_text"], language=None)
+
+# ===========================================================================
+# TAB 7 — Asistan (sohbet)
+# ===========================================================================
+
+with tabs[6]:
+    _lang = st.session_state.get("output_language", "tr")
+    _is_tr = _lang == "tr"
+
+    st.subheader("💬 Asistan" if _is_tr else "💬 Assistant")
+    st.markdown(
+        (
+            "DELF/DALF değerlendirme protokolü, grille'ler, descripteur'lar ve "
+            "metodoloji hakkında serbestçe soru sorun. Her olgusal yanıt korpus "
+            "kaynaklarıyla **dayandırılır ve alıntılanır**. Asistan nihai puan "
+            "kararı vermez ve sınav içeriği üretmez."
+        )
+        if _is_tr
+        else (
+            "Posez librement vos questions sur le protocole d'évaluation DELF/DALF, "
+            "les grilles, les descripteurs et la méthodologie. Chaque réponse "
+            "factuelle est **ancrée et citée** depuis le corpus. L'assistant ne "
+            "décide pas de la note finale et ne génère pas de contenu d'examen."
+        )
+    )
+
+    if MOCK_MODE:
+        st.warning(
+            "⚠️ MOCK MODU — sabit örnek yanıt döner, API çağrısı yapılmaz."
+            if _is_tr
+            else "⚠️ MODE MOCK — réponse fixe, aucun appel API."
+        )
+
+    # --- Toolbar: turn counter + new conversation ---
+    _turns = st.session_state.get("chat_turns", 0)
+    tcol1, tcol2 = st.columns([3, 1])
+    with tcol1:
+        st.caption(
+            f"Tur: {_turns}/{MAX_TURNS}" if _is_tr else f"Tour : {_turns}/{MAX_TURNS}"
+        )
+    with tcol2:
+        if st.button(
+            "🔄 Yeni Konuşma" if _is_tr else "🔄 Nouvelle conversation",
+            key="chat_reset",
+            use_container_width=True,
+            help=(
+                "Konuşma geçmişini temizler ve tur sayacını sıfırlar."
+                if _is_tr
+                else "Efface l'historique et réinitialise le compteur de tours."
+            ),
+        ):
+            st.session_state["chat_history"] = []
+            st.session_state["chat_turns"] = 0
+            st.rerun()
+
+    # --- Example prompts (shown only on an empty conversation) ---
+    if not st.session_state["chat_history"]:
+        _examples_tr = [
+            "B2 PE söylem tutarlılığı kriterinde bant 2 ne anlama gelir?",
+            "İki düzeltici 2 banttan fazla farklı puan verdiğinde ne yapmalıyım?",
+            "DELF düzeltmesinde halo etkisi nedir?",
+            "Beni B2 PE üzerine kısa bir quizle sına.",
+        ]
+        _examples_fr = [
+            "Que signifie la bande 2 pour le critère de cohérence en B2 PE ?",
+            "Que faire si deux correcteurs divergent de plus de 2 bandes ?",
+            "Qu'est-ce que l'effet de halo dans la correction DELF ?",
+            "Lance-moi un mini-quiz sur le B2 PE.",
+        ]
+        st.markdown("**Örnek sorular:**" if _is_tr else "**Exemples de questions :**")
+        for _i, _ex in enumerate(_examples_tr if _is_tr else _examples_fr):
+            if st.button(_ex, key=f"chat_example_{_i}", use_container_width=True):
+                st.session_state["chat_inject"] = _ex
+                st.rerun()
+
+    # Consume an injected message from example buttons (cleared immediately so it
+    # doesn't fire again on the next rerun after the conversation is appended).
+    _inject: str | None = st.session_state.get("chat_inject")
+    if _inject:
+        st.session_state["chat_inject"] = None
+
+    # --- Render conversation history ---
+    for _msg in st.session_state["chat_history"]:
+        with st.chat_message(_msg["role"]):
+            st.markdown(_msg["content"])
+            _srcs = _msg.get("sources") or []
+            if _srcs:
+                with st.expander(
+                    (f"📎 Kaynaklar ({len(_srcs)})" if _is_tr else f"📎 Sources ({len(_srcs)})")
+                ):
+                    for _s in _srcs:
+                        st.markdown(
+                            f"**{_s.get('filename', '?')}** — `{_s.get('parent_id', '')}` "
+                            f"· skor: {_s.get('score', 0)}"
+                        )
+                        if _s.get("snippet"):
+                            st.caption(_s["snippet"])
+
+    # --- Turn limit gate ---
+    _limit_reached = _turns >= MAX_TURNS
+    if _limit_reached:
+        st.warning(
+            "Bu konuşma tur sınırına ulaştı. Bağlam kaymasını önlemek için "
+            "lütfen **🔄 Yeni Konuşma** ile yeni bir konuşma başlatın."
+            if _is_tr
+            else "Cette conversation a atteint la limite de tours. Démarrez une "
+            "**🔄 Nouvelle conversation** pour éviter la dérive de contexte."
+        )
+
+    # --- Chat input ---
+    _user_msg = st.chat_input(
+        ("Sorunuzu yazın..." if _is_tr else "Saisissez votre question..."),
+        key="chat_input",
+        disabled=_limit_reached,
+    )
+
+    _active_msg = (_user_msg or "").strip() or (_inject or "").strip()
+
+    if _active_msg:
+        history_before = list(st.session_state["chat_history"])
+        st.session_state["chat_history"].append(
+            {"role": "user", "content": _active_msg, "sources": []}
+        )
+        with st.chat_message("user"):
+            st.markdown(_active_msg)
+
+        with st.chat_message("assistant"):
+            # Retrieval senkrondur (spinner); LLM yanıtı akışla render edilir.
+            with st.spinner("Kaynaklar aranıyor..." if _is_tr else "Recherche des sources..."):
+                _stream, _sources = chat_stream(
+                    _active_msg, history=history_before, language=_lang
+                )
+            _answer = st.write_stream(_stream)
+
+        st.session_state["chat_history"].append(
+            {
+                "role": "assistant",
+                "content": _answer,
+                "sources": _sources,
+            }
+        )
+        st.session_state["chat_turns"] = _turns + 1
+        st.rerun()
