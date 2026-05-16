@@ -150,8 +150,8 @@ def retrieve_context(
                 "dense_distance": child.get("dense_distance"),
                 "bm25_score": child.get("bm25_score"),
                 "parent_id": parent_id,
-                "source": meta.get("source", "bilinmiyor"),
-                "filename": meta.get("filename", "bilinmiyor"),
+                "source": meta.get("doc_type", meta.get("source", "bilinmiyor")),
+                "filename": meta.get("source_filename", meta.get("filename", "bilinmiyor")),
             }
 
     ordered = sorted(seen_parents.values(), key=lambda r: r["score"], reverse=True)[:top_k]
@@ -240,8 +240,8 @@ def _retrieve_dense(
                 "child_index": meta.get("child_index", -1),
                 "distance": round(float(dist), 4),
                 "parent_id": parent_id,
-                "source": meta.get("source", "bilinmiyor"),
-                "filename": meta.get("filename", "bilinmiyor"),
+                "source": meta.get("doc_type", meta.get("source", "bilinmiyor")),
+                "filename": meta.get("source_filename", meta.get("filename", "bilinmiyor")),
             }
 
     ordered = sorted(seen_parents.values(), key=lambda r: r["distance"])[:top_k]
@@ -325,8 +325,8 @@ def lookup_parent_context(parent_id: str) -> dict | None:
     return {
         "parent_text": parent_data["text"],
         "children": children,
-        "source": parent_data.get("source", ""),
-        "filename": parent_data.get("filename", ""),
+        "source": parent_data.get("doc_type", parent_data.get("source", "")),
+        "filename": parent_data.get("source_filename", parent_data.get("filename", "")),
     }
 
 

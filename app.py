@@ -1,7 +1,7 @@
 """
 TEE-Model — Streamlit Uygulaması
 
-Maaş mutemedi onboarding eğitimi için yapay zeka destekli içerik üretimi.
+DELF/DALF sınav düzeltici eğitimi için yapay zeka destekli içerik üretimi.
 Veri yükleme, süreç haritası, hata kartları, terim sözlüğü, simülasyon
 ve uzman onay panelini tek arayüzde sunar.
 """
@@ -48,7 +48,7 @@ def _run_via_queue(label: str, fn, *args, **kwargs):
 # ---------------------------------------------------------------------------
 
 st.set_page_config(
-    page_title="TEE-Model — Maaş Mutemedi Eğitim Sistemi",
+    page_title="TEE-Model — DELF/DALF Eğitim Sistemi",
     page_icon="🏛️",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -200,7 +200,7 @@ with st.sidebar:
 
 st.title("🏛️ TEE-Model — Tacit-Explicit Entegre Eğitim Sistemi")
 st.caption(
-    "Maaş Mutemedi Onboarding | "
+    "DELF/DALF Sınav Düzeltici | "
     + ("⚠️ MOCK MODU AKTİF — cloud servis çağrısı yapılmıyor" if MOCK_MODE else f"🟢 Vertex AI Gemini: {settings.GENERATION_MODEL}")
 )
 
@@ -925,7 +925,7 @@ with tabs[5]:
         with fcol2:
             search_query = st.text_input(
                 "🔍 Metin içinde ara:",
-                placeholder="Örn: maaş, vergi, ödeme...",
+                placeholder="Örn: grille, descripteur, niveau...",
                 key="db_search",
             )
 
