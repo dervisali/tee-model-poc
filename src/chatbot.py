@@ -62,6 +62,17 @@ _ASSISTANT_CTX_LEN = 180    # Retrieval zenginleştirme için asistan yanıtınd
 # ([Kaynak: ...]) hem de gözlemlenen numaralı ([Kaynak 2: ...]) biçimini
 # yakalar — iki nokta üst üste opsiyoneldir.
 _CITATION_RE = re.compile(r"\[Kaynak[^\]]*\]")
+# Citation ayırıcı — Gemini em-dash'i bazen en-dash veya düz tireye
+# normalize ediyor. parent_id'lerin kendisi tire içerebildiğinden (örn.
+# `manuel-exacor_par5`) ayırıcının iki yanında boşluk şart.
+_PARENT_ID_SEP_RE = re.compile(r"\s+[—–-]\s+")
+_VAGUE_FOLLOWUP_RE = re.compile(
+    r"^\s*(biraz\s+daha\s+açıkla|daha\s+açıkla|açıklar\s+mısın|"
+    r"örnek\s+ver|peki\s+.+|devam\s+et|bunu\s+aç|"
+    r"explique\s+un\s+peu\s+plus|plus\s+de\s+détails|donne\s+un\s+exemple|"
+    r"et\s+pour\s+.+|continue|précise)\s*[?.!]*\s*$",
+    re.IGNORECASE,
+)
 
 _ROLE_LABELS: dict[OutputLanguage, dict[str, str]] = {
     "tr": {"user": "Kullanıcı", "assistant": "Asistan"},
@@ -71,6 +82,32 @@ _ROLE_LABELS: dict[OutputLanguage, dict[str, str]] = {
 _NO_CONTEXT_MARKER: dict[OutputLanguage, str] = {
     "tr": "(Bu soruyla ilgili korpus belgesi bulunamadı.)",
     "fr": "(Aucun document du corpus pertinent pour cette question.)",
+}
+
+_NO_CONTEXT_ANSWER: dict[OutputLanguage, str] = {
+    "tr": (
+        "Bu konuda elimdeki belgelerde yeterli bilgi yok. Korpustaki DELF/DALF "
+        "grille, descripteur veya metodoloji belgelerine dayanmayan bir yanıt "
+        "üretmem doğru olmaz."
+    ),
+    "fr": (
+        "Je ne dispose pas d'informations suffisantes sur ce point dans mes "
+        "documents. Je ne peux pas produire une réponse qui ne soit pas ancrée "
+        "dans les grilles, descripteurs ou documents méthodologiques DELF/DALF "
+        "du corpus."
+    ),
+}
+
+_CITATION_WARNING: dict[OutputLanguage, str] = {
+    "tr": (
+        "\n\n_Not: Bu yanıttaki kaynak atıfları getirilen korpus kaynaklarıyla "
+        "tam olarak doğrulanamadı; lütfen kaynak panelini kontrol edin._"
+    ),
+    "fr": (
+        "\n\n_Note : les citations de cette réponse n'ont pas pu être validées "
+        "entièrement avec les sources récupérées ; veuillez vérifier le panneau "
+        "des sources._"
+    ),
 }
 
 # ---------------------------------------------------------------------------
@@ -273,7 +310,11 @@ def _build_retrieval_query(user_message: str, history: list[dict]) -> str:
         if prev_user and prev_assistant:
             break
 
-    parts = [p for p in (prev_user, prev_assistant, user_message) if p.strip()]
+    current = user_message.strip()
+    if _VAGUE_FOLLOWUP_RE.match(current) and (prev_user or prev_assistant):
+        current = f"takip sorusu / question de suivi: {current}"
+
+    parts = [p for p in (prev_user, prev_assistant, current) if p.strip()]
     return " ".join(parts).strip()
 
 
@@ -286,6 +327,73 @@ def _format_history(history: list[dict], language: OutputLanguage) -> str:
         role = labels.get(msg.get("role", "user"), msg.get("role", ""))
         lines.append(f"{role}: {msg.get('content', '')}")
     return "\n\n".join(lines)
+
+
+def _extract_cited_parent_ids(answer: str) -> list[str]:
+    """Yanıttaki [Kaynak: dosya — parent_id] etiketlerinden parent_id çıkarır."""
+    cited: list[str] = []
+    for citation in _CITATION_RE.findall(answer):
+        inner = citation.strip("[]")
+        parts = _PARENT_ID_SEP_RE.split(inner)
+        if len(parts) < 2:
+            continue
+        parent_id = parts[-1].strip()
+        if parent_id and parent_id not in cited:
+            cited.append(parent_id)
+    return cited
+
+
+def _citation_report(answer: str, sources: list[dict]) -> dict:
+    """
+    Modelin ürettiği atıfları retrieved parent_id listesine karşı doğrular.
+
+    `passed` yalnızca atıf varsa ve tüm atıflar retrieved kaynaklardan geliyorsa
+    true olur. Selamlama gibi kaynak gerektirmeyen yanıtlar için chatbot LLM'e
+    gitmeden önce no-context fallback kullandığımızdan, kaynaklı yanıtların en az
+    bir doğrulanabilir atıf taşımasını bekliyoruz.
+    """
+    cited = _extract_cited_parent_ids(answer)
+    available = {
+        str(source.get("parent_id", "")).strip()
+        for source in sources
+        if source.get("parent_id")
+    }
+    invalid = [parent_id for parent_id in cited if parent_id not in available]
+    return {
+        "passed": bool(cited) and not invalid,
+        "cited_parent_ids": cited,
+        "invalid_parent_ids": invalid,
+        "cited_count": len(cited),
+        "retrieved_count": len(sources),
+    }
+
+
+def validate_citations(answer: str, sources: list[dict]) -> dict:
+    """Public helper for UI/tests: validate answer citations against sources."""
+    return _citation_report(answer, sources)
+
+
+def _attach_citation_report(sources: list[dict], report: dict) -> list[dict]:
+    """UI'nin kaynak panelinde gösterebilmesi için raporu her source'a ekler."""
+    return [{**source, "_citation_report": report} for source in sources]
+
+
+def _guard_answer(answer: str, sources: list[dict], lang: OutputLanguage) -> tuple[str, list[dict], dict]:
+    """Yanıtı citation validation'dan geçirir ve gerekirse görünür uyarı ekler."""
+    report = _citation_report(answer, sources)
+    guarded = answer.strip()
+    if not report["passed"]:
+        logger.warning(
+            "Sohbet citation validation başarısız",
+            extra={
+                "event": "chat_citation_validation_failed",
+                "cited_parent_ids": report["cited_parent_ids"],
+                "invalid_parent_ids": report["invalid_parent_ids"],
+                "retrieved_count": report["retrieved_count"],
+            },
+        )
+        guarded += _CITATION_WARNING[lang]
+    return guarded, _attach_citation_report(sources, report), report
 
 
 def _retrieve(query: str) -> tuple[str, list[dict]]:
@@ -400,16 +508,35 @@ def chat(
     if settings.MOCK_MODE:
         logger.info("MOCK_MODE: sohbet fixture döndürülüyor (lang=%s).", lang)
         fixture = _MOCK_RESPONSES[lang]
-        return {"answer": fixture["answer"], "sources": list(fixture["sources"]), "error": None}
+        report = _citation_report(fixture["answer"], fixture["sources"])
+        return {
+            "answer": fixture["answer"],
+            "sources": _attach_citation_report(list(fixture["sources"]), report),
+            "error": None,
+            "citation_report": report,
+        }
 
     try:
         system_prompt, user_prompt, sources = _prepare(user_message, history, lang)
+        if not sources:
+            return {
+                "answer": _NO_CONTEXT_ANSWER[lang],
+                "sources": [],
+                "error": None,
+                "citation_report": _citation_report(_NO_CONTEXT_ANSWER[lang], []),
+            }
         answer = llm_generate(
             prompt=user_prompt,
             system=system_prompt,
             temperature=CHAT_TEMPERATURE,
         )
-        return {"answer": answer.strip(), "sources": sources, "error": None}
+        guarded_answer, checked_sources, report = _guard_answer(answer, sources, lang)
+        return {
+            "answer": guarded_answer,
+            "sources": checked_sources,
+            "error": None,
+            "citation_report": report,
+        }
 
     except Exception as exc:  # noqa: BLE001 — UI'ya zarif hata döndürülür
         logger.error("Sohbet turu hatası: %s", exc)
@@ -467,7 +594,8 @@ def chat_stream(
     if settings.MOCK_MODE:
         logger.info("MOCK_MODE: sohbet akış fixture'ı döndürülüyor (lang=%s).", lang)
         fixture = _MOCK_RESPONSES[lang]
-        return _mock_stream(fixture["answer"]), list(fixture["sources"])
+        report = _citation_report(fixture["answer"], fixture["sources"])
+        return _mock_stream(fixture["answer"]), _attach_citation_report(list(fixture["sources"]), report)
 
     try:
         system_prompt, user_prompt, sources = _prepare(user_message, history, lang)
@@ -479,4 +607,25 @@ def chat_stream(
 
         return _err_gen(), []
 
-    return _llm_stream(user_prompt, system_prompt, lang), sources
+    if not sources:
+        return _mock_stream(_NO_CONTEXT_ANSWER[lang]), []
+
+    def _validated_stream():
+        pieces: list[str] = []
+        for piece in _llm_stream(user_prompt, system_prompt, lang):
+            pieces.append(piece)
+            yield piece
+        report = _citation_report("".join(pieces), sources)
+        if not report["passed"]:
+            logger.warning(
+                "Sohbet akış citation validation başarısız",
+                extra={
+                    "event": "chat_stream_citation_validation_failed",
+                    "cited_parent_ids": report["cited_parent_ids"],
+                    "invalid_parent_ids": report["invalid_parent_ids"],
+                    "retrieved_count": report["retrieved_count"],
+                },
+            )
+            yield _CITATION_WARNING[lang]
+
+    return _validated_stream(), sources

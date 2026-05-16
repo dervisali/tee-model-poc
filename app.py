@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from src.config import settings  # noqa: E402
 from src.logging_config import configure_logging  # noqa: E402
 from src.job_queue import submit_job, wait_for_job, queue_size  # noqa: E402
-from src.chatbot import chat_stream, MAX_TURNS  # noqa: E402
+from src.chatbot import chat_stream, MAX_TURNS, validate_citations  # noqa: E402
 
 configure_logging()
 logger = logging.getLogger(__name__)
@@ -1134,6 +1134,30 @@ with tabs[6]:
                 with st.expander(
                     (f"📎 Kaynaklar ({len(_srcs)})" if _is_tr else f"📎 Sources ({len(_srcs)})")
                 ):
+                    _citation_report = _srcs[0].get("_citation_report") or {}
+                    if _citation_report:
+                        _passed = bool(_citation_report.get("passed"))
+                        _cited = int(_citation_report.get("cited_count", 0) or 0)
+                        _retrieved = int(_citation_report.get("retrieved_count", len(_srcs)) or 0)
+                        _invalid = _citation_report.get("invalid_parent_ids") or []
+                        st.caption(
+                            (
+                                f"✅ Atıf kontrolü geçti · {_cited}/{_retrieved} kaynak kullanıldı"
+                                if _passed
+                                else f"⚠️ Atıf kontrolü uyarısı · {_cited}/{_retrieved} kaynak kullanıldı"
+                            )
+                            if _is_tr
+                            else (
+                                f"✅ Citations validées · {_cited}/{_retrieved} sources utilisées"
+                                if _passed
+                                else f"⚠️ Avertissement citations · {_cited}/{_retrieved} sources utilisées"
+                            )
+                        )
+                        if _invalid:
+                            st.caption(
+                                ("Doğrulanamayan parent_id: " if _is_tr else "parent_id non validé : ")
+                                + ", ".join(_invalid)
+                            )
                     for _s in _srcs:
                         st.markdown(
                             f"**{_s.get('filename', '?')}** — `{_s.get('parent_id', '')}` "
@@ -1177,6 +1201,10 @@ with tabs[6]:
                     _active_msg, history=history_before, language=_lang
                 )
             _answer = st.write_stream(_stream)
+
+        _citation_report = validate_citations(_answer, _sources) if _sources else {}
+        if _citation_report:
+            _sources = [{**_s, "_citation_report": _citation_report} for _s in _sources]
 
         st.session_state["chat_history"].append(
             {
