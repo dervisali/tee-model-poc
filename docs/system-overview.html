@@ -107,7 +107,7 @@
 
 <h1>TEE-Model — System Overview</h1>
 <p style="color:var(--muted); font-size:.9rem;">
-  Version on branch <code>feature/delf-corpus-migration</code> · Last updated 2026-05-16 ·
+  Version on branch <code>feature/delf-corpus-migration</code> · Last updated 2026-05-16 (Tab 7 chatbot + post-quick-wins) ·
   This document is intended to be fed to a large language model for analysis and improvement suggestions.
 </p>
 
@@ -190,23 +190,26 @@
 <div class="diagram">
 ┌─────────────────────────────────────────────────────────────────────┐
 │                        STREAMLIT FRONTEND                           │
-│  Tabs: Data Loader | Process Map | Error Cards | Simulation |       │
-│        Glossary | Expert Panel | Prompt Optimizer | DB Explorer     │
+│  Tabs: Data Loader | Process Map | Simulation | Expert Panel |      │
+│        Prompt Optimizer | DB Explorer | Asistan (chat)              │
 │  Sidebar: language toggle (TR / FR)                                 │
-└───────────────────────────┬─────────────────────────────────────────┘
-                            │  user action (button click)
-                            ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                     GENERATION LAYER  (src/generators.py)           │
-│  generate_process_map()  generate_error_cards()                     │
-│  generate_glossary()     generate_simulation()                      │
-│                                                                     │
-│  Multi-phase retrieval (process map: 3 queries × top-8, merged      │
-│  to top-20 unique parents) → build grounded system prompt →         │
-│  llm_generate(response_format=PydanticSchema)                       │
-└───────────────────────────┬─────────────────────────────────────────┘
-                            │  retrieve_context(query, top_k)
-                            ▼
+└──────────────┬────────────────────────────┬─────────────────────────┘
+               │ button click               │ chat turn
+               ▼                            ▼
+┌─────────────────────────────┐  ┌─────────────────────────────────┐
+│  GENERATION LAYER           │  │  CHATBOT LAYER                  │
+│  (src/generators.py)        │  │  (src/chatbot.py)               │
+│  process_map / error_cards  │  │  chat() · chat_stream()         │
+│  glossary / simulation      │  │  - sliding-window history       │
+│                             │  │  - free-text + inline citations │
+│  Multi-phase retrieval      │  │  - safety: system-prompt rules  │
+│  → grounded system prompt   │  │  - Streamlit write_stream UX    │
+│  → llm_generate(            │  │  - no Pydantic schema (free     │
+│    response_format=Schema)  │  │    text), MAX_TURNS=10          │
+└─────────────┬───────────────┘  └───────────────┬─────────────────┘
+              │ retrieve_context()              │ retrieve_context()
+              └───────────────┬─────────────────┘
+                              ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │                     RETRIEVAL LAYER  (src/retrieval.py)             │
 │                                                                     │
@@ -341,6 +344,14 @@
 <!-- ============================================================ -->
 <h2 id="generation">6. Generation Pipeline</h2>
 
+<p>
+  The generation layer has <strong>two distinct surfaces</strong>:
+  (a) four <em>structured</em> content generators (<code>src/generators.py</code>) used by Tabs 1-3,
+  and (b) one <em>conversational</em> assistant (<code>src/chatbot.py</code>) used by Tab 7.
+  Both share the same retrieval layer but differ in output shape, prompt strategy, and safety model.
+</p>
+
+<h3>6a. Structured Generators (<code>src/generators.py</code>)</h3>
 <p>Four content generators, each producing a distinct Pydantic-validated structure:</p>
 
 <table>
@@ -410,6 +421,31 @@ KAYNAK CHUNK İNDEKSLERİ: [B2_Grille_PO_pdf_par3, ...]</code></pre>
   <li><strong>simulation:</strong> "Varsayılan" | "Puan uyuşmazlığı" | "Sınır seviye"</li>
 </ul>
 
+<h3>6b. Chatbot (<code>src/chatbot.py</code>)</h3>
+<p>
+  Tab 7 (<em>Asistan</em>) is a free-form conversational surface for examiners — used for
+  clarifying questions, mini-quizzes, terminology lookups, borderline-case walkthroughs,
+  and délibération script rehearsal. It is <strong>stateless on the server</strong>:
+  conversation history lives in <code>st.session_state</code>, and <code>chat()</code> takes
+  it as a parameter each turn.
+</p>
+
+<table>
+  <tr><th>Design choice</th><th>Rationale</th></tr>
+  <tr><td>No Pydantic <code>response_format</code></td><td>Output is free text with inline <code>[Kaynak: file — parent_id]</code> citations, not a fixed schema.</td></tr>
+  <tr><td>Sliding-window history (<code>HISTORY_WINDOW=10</code> messages, <code>MAX_TURNS=10</code>)</td><td>Full history kept in <code>session_state</code>; only last 10 messages enter the prompt to bound tokens and context drift.</td></tr>
+  <tr><td>Streaming via <code>generate_stream</code> + <code>st.write_stream</code></td><td>DELF answers can be long; token-by-token rendering hides perceived latency. Streaming path skips retry (cannot replay a partial stream).</td></tr>
+  <tr><td>Single-layer safety (system prompt rules)</td><td>Six numbered guardrails: hard grounding, mandatory citation, "no info" fallback, no final score decisions, no exam content generation, output-language lock.</td></tr>
+  <tr><td>Three-layer retrieval query</td><td>Concatenates previous user msg + previous assistant snippet (citations stripped) + current msg — preserves topic across vague follow-ups like "biraz daha açıkla".</td></tr>
+  <tr><td>Job-queue bypass</td><td>Chat is interactive (single short LLM call); serializing it behind long generation jobs would be poor UX.</td></tr>
+</table>
+
+<p>
+  Public API: <code>chat(user_message, history, language) → {"answer", "sources", "error"}</code>
+  for tests/programmatic use; <code>chat_stream(...) → (generator, sources)</code> for the UI.
+  <code>MOCK_MODE</code> returns fixed bilingual fixtures (halo-effect example) without an API call.
+</p>
+
 <!-- ============================================================ -->
 <h2 id="frontend">7. Frontend &amp; UX</h2>
 
@@ -422,13 +458,13 @@ KAYNAK CHUNK İNDEKSLERİ: [B2_Grille_PO_pdf_par3, ...]</code></pre>
   <tr><td>İnteraktif Simülasyon</td><td>Multiple-choice examiner decision scenarios</td><td><span class="badge green">Live</span></td></tr>
   <tr><td>Uzman Onay Paneli</td><td>Human expert review and approval of generated content</td><td><span class="badge green">Live</span></td></tr>
   <tr><td>Prompt Optimizer</td><td>A/B test prompt variants, LLM judge scoring</td><td><span class="badge green">Live, DELF variants</span></td></tr>
-  <tr><td>Veritabanı Gezgini</td><td>Browse all chunks by source/type</td><td><span class="badge orange">Partially broken — groups by legacy <code>source</code> field; DELF chunks use <code>doc_type</code></span></td></tr>
+  <tr><td>Veritabanı Gezgini</td><td>Browse all chunks by <code>doc_type</code> + filters</td><td><span class="badge green">Live — patched for DELF metadata (app.py:909-911)</span></td></tr>
+  <tr><td>Asistan</td><td>Corpus-grounded conversational chatbot (Tab 7)</td><td><span class="badge green">Live — bilingual, streaming, cited</span></td></tr>
 </table>
 
 <div class="callout warn">
-  <strong>Known cosmetic issues:</strong>
-  (1) DB Explorer tab groups by old <code>source</code> field instead of <code>doc_type</code> — DELF chunks don't appear in the legacy buckets.
-  (2) The app header still says "Tacit-Explicit Entegre Eğitim Sistemi" — the TEE acronym is payroll-era; DELF rebranding of the main title is pending.
+  <strong>Known cosmetic issue:</strong>
+  The app header still says "Tacit-Explicit Entegre Eğitim Sistemi" — the TEE acronym is payroll-era; DELF rebranding of the main title is pending. (See <code>app.py:217</code>.)
 </div>
 
 <!-- ============================================================ -->
@@ -455,12 +491,13 @@ KAYNAK CHUNK İNDEKSLERİ: [B2_Grille_PO_pdf_par3, ...]</code></pre>
 
 <ul>
   <li><span class="badge orange">High</span> <strong>No formal evaluation:</strong> Gates M3 (top-3 source recall ≥90%) and M4 (citation accuracy ≥95%) have not been measured. The Phase 4 bilingual eval set (<code>evaluation/examiner_questions.json</code>, ~50 grounded Q&amp;A pairs) has not been built.</li>
-  <li><span class="badge orange">High</span> <strong>DB Explorer broken for DELF:</strong> chunks are grouped by <code>source</code> (old field) not <code>doc_type</code>; fix requires updating ~lines 905-951 of <code>app.py</code>.</li>
-  <li><span class="badge">Medium</span> <strong>TR mock fixtures are payroll-domain:</strong> <code>_MOCK_PROCESS_MAP</code> in <code>src/generators.py</code> still contains payroll content. Tests pass because they only check structure, not domain.</li>
   <li><span class="badge">Medium</span> <strong>Metadata filter query router (Phase 6):</strong> <code>src/metadata_filter.py</code> not yet implemented. Queries like "show me B2 grilles only" cannot filter by <code>level=B2, doc_type=grille</code> before vector search.</li>
   <li><span class="badge">Medium</span> <strong>Cloud Storage persistence (Phase 7):</strong> ChromaDB is local-disk only. Cloud Run ephemeral filesystem loses the DB on restart. FUSE mount to GCS not yet wired.</li>
-  <tr><td><span class="badge">Low</span> <strong>RAGAS evaluator</strong> (<code>src/evaluator.py</code>) hard-coded to <code>langchain-google-vertexai</code>; breaks under <code>INFERENCE_BACKEND=public_genai</code>.</li>
+  <li><span class="badge">Medium</span> <strong>App header still says "TEE":</strong> Main title in <code>app.py:217</code> reads "Tacit-Explicit Entegre Eğitim Sistemi" (payroll-era). DELF rebrand of the header pending.</li>
+  <li><span class="badge">Low</span> <strong>Chatbot safety not stress-tested:</strong> Tab 7 enforces six guardrails via system prompt only (no classifier). The rules have not been adversarially probed for jailbreaks (no-info bypass, score-decision coercion, exam-content generation, language switch).</li>
+  <li><span class="badge">Low</span> <strong>RAGAS evaluator</strong> (<code>src/evaluator.py</code>) hard-coded to <code>langchain-google-vertexai</code>; breaks under <code>INFERENCE_BACKEND=public_genai</code>.</li>
   <li><span class="badge">Low</span> <strong>Contextual enrichment disabled:</strong> <code>ENABLE_CONTEXTUAL_ENRICHMENT=false</code> to save cost. Enabling it adds one LLM call per chunk (~4 950 calls) at ingest time, prepending a context summary to each child — a known retrieval quality improvement (Anthropic Contextual Retrieval, 2024).</li>
+  <li><span class="badge">Low</span> <strong>Vertex context caching evaluated, not applied:</strong> Static system-prompt portions (~700-900 tokens for chatbot, ~150-250 for generators) are below Gemini 2.5 Flash's 1,024-token implicit-cache threshold. Revisit if rules grow past 1,024 tokens or model migrates to Pro.</li>
 </ul>
 
 <!-- ============================================================ -->
@@ -604,7 +641,7 @@ KAYNAK CHUNK İNDEKSLERİ: [B2_Grille_PO_pdf_par3, ...]</code></pre>
   <tr><td>Metadata Pre-Filtering (10.3)</td><td>Medium (Phase 6 implementation)</td><td>High (precision for level/skill queries)</td><td>Requires query intent classification</td></tr>
   <tr><td>Build Eval Set + Run RAGAS (10.10)</td><td>Medium (50 Q&amp;A pairs manual effort)</td><td>Critical (enables measuring everything else)</td><td>Domain expert time</td></tr>
   <tr><td>Cross-Encoder Reranking (10.1)</td><td>Medium (add rerank step in retrieval.py)</td><td>High (top-k precision)</td><td>None</td></tr>
-  <tr><td>Fix DB Explorer (Known Gap)</td><td>Low (update ~10 lines in app.py)</td><td>Medium (UX)</td><td>None</td></tr>
+  <tr><td>Chatbot Safety Stress Test (Known Gap)</td><td>Low (adversarial probe set + assertions)</td><td>High (production trust)</td><td>None</td></tr>
   <tr><td>HyDE (10.5)</td><td>Low (add pre-retrieval LLM call)</td><td>Medium (procedural query quality)</td><td>None</td></tr>
   <tr><td>Semantic Chunking Benchmark (10.7)</td><td>Low (config change + re-ingest + eval)</td><td>Medium (chunk coherence)</td><td>Eval set (10.10)</td></tr>
   <tr><td>User Feedback Loop (10.12)</td><td>Medium (Streamlit UI + storage)</td><td>High (long-term quality signal)</td><td>Deployed users</td></tr>
