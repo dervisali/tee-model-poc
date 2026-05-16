@@ -19,7 +19,7 @@ import logging
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from src.config import settings
 from src.llm import generate as llm_generate
@@ -77,20 +77,26 @@ _GENERATOR_PROMPTS: dict[str, dict[OutputLanguage, dict[str, str]]] = {
             "query": "DELF değerlendirme süreci sınavcı-düzeltici protokolü iş akışı",
             "instruction": (
                 "Yukarıdaki Fransızca DELF kaynak metinlerine dayanarak "
-                "sınavcı-düzeltici değerlendirme sürecinin adım adım haritasını "
-                "TÜRKÇE üret. Her adım için kullandığın kaynak parent_id "
-                "değerlerini kaynak_chunk_indeksleri alanına yaz. Sadece "
-                "geçerli JSON döndür."
+                "sınavcı-düzeltici değerlendirme sürecinin kapsamlı adım adım "
+                "haritasını TÜRKÇE üret. "
+                "EN AZ 10, EN FAZLA 15 adım üret. "
+                "Adımları aşağıdaki dört fazdan birine ata (faz alanı): "
+                "1-Hazırlık, 2-Bireysel Düzeltme, 3-Çift Düzeltme ve Uzlaşma, 4-Finalizasyon. "
+                "Her adım için kullandığın kaynak parent_id değerlerini "
+                "kaynak_chunk_indeksleri alanına yaz. Sadece geçerli JSON döndür."
             ),
         },
         "fr": {
             "query": "processus d'évaluation DELF protocole examinateur correcteur",
             "instruction": (
                 "Sur la base des sources DELF françaises ci-dessus, produire la "
-                "carte étape par étape du processus d'évaluation par les "
-                "examinateurs-correcteurs en FRANÇAIS. Pour chaque étape, "
-                "indiquer les parent_id sources dans kaynak_chunk_indeksleri. "
-                "Retourner uniquement du JSON valide."
+                "carte complète et détaillée du processus d'évaluation par les "
+                "examinateurs-correcteurs en FRANÇAIS. "
+                "Produire ENTRE 10 ET 15 étapes. "
+                "Attribuer chaque étape à l'une des quatre phases suivantes (champ faz) : "
+                "1-Préparation, 2-Correction individuelle, 3-Double correction et délibération, 4-Finalisation. "
+                "Pour chaque étape, indiquer les parent_id sources dans "
+                "kaynak_chunk_indeksleri. Retourner uniquement du JSON valide."
             ),
         },
     },
@@ -161,12 +167,29 @@ _GENERATOR_PROMPTS: dict[str, dict[OutputLanguage, dict[str, str]]] = {
 }
 
 
+# Three targeted queries — one per examination phase — used by the multi-phase
+# retrieval path in generate_process_map to ensure all phases are represented.
+_PROCESS_MAP_PHASE_QUERIES: dict[OutputLanguage, list[str]] = {
+    "tr": [
+        "sınavcı-düzeltici habilitasyon hazırlık referans manüeli oturum öncesi",
+        "bireysel düzeltme notlandırma grille kriterleri adayın üretimini değerlendirme",
+        "çift düzeltme skoru karşılaştırma delibération uzlaşma atipik kopya finalizasyon",
+    ],
+    "fr": [
+        "habilitation examinateur-correcteur préparation référentiel session convocation",
+        "correction individuelle notation grille critères évaluation production candidat",
+        "double correction comparaison délibération copie atypique finalisation résultats",
+    ],
+}
+
+
 # ---------------------------------------------------------------------------
 # Pydantic şemaları — yapılandırılmış çıktı için
 # ---------------------------------------------------------------------------
 
 class ProcessStep(BaseModel):
     adim_no: int
+    faz: str
     baslik: str
     giris: str
     cikis: str
@@ -177,7 +200,7 @@ class ProcessStep(BaseModel):
 
 
 class ProcessMapSchema(BaseModel):
-    steps: list[ProcessStep]
+    steps: list[ProcessStep] = Field(min_length=8)
 
 
 class ErrorCard(BaseModel):
@@ -653,7 +676,13 @@ def _structured_generate(
 # ---------------------------------------------------------------------------
 
 def generate_process_map(language: OutputLanguage | None = None) -> dict:
-    """DELF değerlendirme süreci haritasını grounded biçimde üretir."""
+    """DELF değerlendirme süreci haritasını grounded biçimde üretir.
+
+    Üç fazlı retrieval stratejisi: her faz için ayrı bir sorgu çalıştırılır
+    (hazırlık / bireysel düzeltme / çift düzeltme+finalizasyon), sonuçlar
+    parent_id bazında tekilleştirilip en iyi 20'si bağlam olarak sunulur.
+    Bu sayede tek sorguda gözden kaçabilecek fazlar kapsama alınır.
+    """
     lang = _resolve_language(language)
     if settings.MOCK_MODE:
         logger.info("MOCK_MODE: process_map fixture döndürülüyor (lang=%s).", lang)
@@ -661,14 +690,40 @@ def generate_process_map(language: OutputLanguage | None = None) -> dict:
 
     prompts = _get_prompts("process_map", lang)
     try:
-        return _structured_generate(
-            query=prompts["query"],
-            instruction=prompts["instruction"],
-            schema=ProcessMapSchema,
-            top_k=8,
-            content_type="process_map",
-            language=lang,
+        # --- multi-phase retrieval ---
+        phase_queries = _PROCESS_MAP_PHASE_QUERIES[lang]
+        seen: dict[str, dict] = {}
+        for q in phase_queries:
+            for chunk in retrieve_context(q, top_k=8):
+                pid = chunk["parent_id"]
+                if pid not in seen or chunk.get("score", 0) > seen[pid].get("score", 0):
+                    seen[pid] = chunk
+        merged = sorted(seen.values(), key=lambda c: c.get("score", 0), reverse=True)[:20]
+        logger.info("Multi-phase retrieval: %d unique parent chunks", len(merged))
+
+        context_text, chunk_indices = build_context_text(merged)
+        template = _GROUNDING_TEMPLATES.get(lang, _GROUNDING_TEMPLATES["tr"])
+        system = template.format(context_text=context_text, chunk_indices=chunk_indices)
+
+        raw = llm_generate(
+            prompt=prompts["instruction"],
+            system=system,
+            response_format=ProcessMapSchema,
         )
+        try:
+            result = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            logger.error("JSON parse hatası: %s", exc)
+            return {"hata": str(exc), "ham_cikti": raw}
+
+        if settings.ENABLE_CONFIDENCE_SCORING:
+            from src.confidence import score_generated_content
+            try:
+                result["_confidence"] = score_generated_content(result, merged, "process_map")
+            except Exception as exc:
+                logger.warning("Confidence skorlaması atlandı: %s", exc)
+
+        return result
     except Exception as exc:
         logger.error("process_map üretim hatası: %s", exc)
         return {"hata": str(exc), "ham_cikti": ""}
