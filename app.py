@@ -138,7 +138,17 @@ def _render_confidence_banner(content: dict) -> None:
     extra = ""
     if unsupported:
         items = "".join(f"<li>{u}</li>" for u in unsupported[:5])
-        extra = f"<details><summary>Desteklenmeyen iddialar ({len(unsupported)})</summary><ul>{items}</ul></details>"
+        source_hint = ""
+        if color in ("yellow", "red"):
+            source_hint = (
+                "<p style='margin-top:0.4rem;font-size:0.82rem;'>"
+                "💡 Desteklenmeyen iddiaların kaynak belgelerini doğrulamak için "
+                "<b>Veritabanı Gezgini</b> sekmesini kullanın.</p>"
+            )
+        extra = (
+            f"<details><summary>Desteklenmeyen iddialar ({len(unsupported)})</summary>"
+            f"<ul>{items}</ul>{source_hint}</details>"
+        )
     st.markdown(
         f"""<div class="confidence-banner {color}">
         <b>🛡️ {label}</b> &nbsp;·&nbsp;
@@ -331,7 +341,11 @@ with tabs[1]:
 
     # --- Process Map ---
     st.markdown("#### 🗺️ Süreç Haritası")
-    if st.button("Süreç Haritası Oluştur", key="gen_process_map"):
+    if st.button(
+        "Süreç Haritası Oluştur", key="gen_process_map",
+        help="DELF/DALF sınavcı-düzeltici değerlendirme sürecinin adım adım haritasını oluşturur. "
+             "Hazırlık, Bireysel Düzeltme, Çift Düzeltme ve Finalizasyon fazlarını kapsar.",
+    ):
         from src.generators import generate_process_map
 
         result, error = _run_via_queue(
@@ -363,7 +377,11 @@ with tabs[1]:
 
     # --- Error Cards ---
     st.markdown("#### ⚠️ Hata Kartları")
-    if st.button("Hata Kartlarını Oluştur", key="gen_error_cards"):
+    if st.button(
+        "Hata Kartlarını Oluştur", key="gen_error_cards",
+        help="Yeni DELF/DALF sınavcılarının sık yaptığı değerlendirme hatalarını kartlar halinde listeler. "
+             "Her kart: hata, kök neden, tespit yöntemi ve doğru uygulama içerir.",
+    ):
         from src.generators import generate_error_cards
 
         result, error = _run_via_queue(
@@ -399,7 +417,11 @@ with tabs[1]:
 
     # --- Glossary ---
     st.markdown("#### 📖 Terim Sözlüğü")
-    if st.button("Terim Sözlüğü Oluştur", key="gen_glossary"):
+    if st.button(
+        "Terim Sözlüğü Oluştur", key="gen_glossary",
+        help="DELF/DALF sınavcıları için CECRL terim sözlüğü oluşturur. "
+             "Grille, descripteur, copie atypique gibi teknik terimleri tanım ve kullanım örnekleriyle açıklar.",
+    ):
         from src.generators import generate_glossary
 
         result, error = _run_via_queue(
@@ -435,7 +457,11 @@ with tabs[1]:
 with tabs[2]:
     st.subheader("İnteraktif Simülasyon Senaryosu")
 
-    if st.button("🎲 Yeni Senaryo Oluştur", key="gen_simulation"):
+    if st.button(
+        "🎲 Yeni Senaryo Oluştur", key="gen_simulation",
+        help="Gerçekçi bir DELF/DALF değerlendirme karar senaryosu üretir. "
+             "Atipik kopya, puan uyuşmazlığı veya bant sınır kararları gibi kritik durumları test eder.",
+    ):
         from src.generators import generate_simulation_scenario
 
         result, error = _run_via_queue(
@@ -879,20 +905,23 @@ with tabs[5]:
             data = col.get(include=["documents", "metadatas"])
             chunks = []
             for doc, meta in zip(data["documents"], data["metadatas"]):
-                # Phase 1.2.A: enriched=true ise gömülen 'doc' bağlam özeti +
-                # orijinaldir. UI'da orijinali göstermek daha anlaşılır.
                 original = meta.get("original_text", doc)
+                # DELF corpus uses source_filename + doc_type; fall back to old keys
+                filename = meta.get("source_filename", meta.get("filename", "bilinmiyor"))
+                doc_type = meta.get("doc_type", meta.get("source", "bilinmiyor"))
                 chunks.append({
                     "text": original,
                     "embedded_text": doc,
                     "enriched": bool(meta.get("enriched", False)),
-                    "source": meta.get("source", "bilinmiyor"),
-                    "filename": meta.get("filename", "bilinmiyor"),
+                    "doc_type": doc_type,
+                    "filename": filename,
+                    "level": meta.get("level", ""),
+                    "skill": meta.get("skill", ""),
                     "chunk_index": meta.get("child_index", 0),
                     "parent_id": meta.get("parent_id", ""),
                     "char_count": meta.get("char_count", len(original)),
                 })
-            chunks.sort(key=lambda c: (c["source"], c["chunk_index"]))
+            chunks.sort(key=lambda c: (c["doc_type"], c["filename"], c["chunk_index"]))
             return chunks
         except Exception as exc:
             return []
@@ -902,40 +931,57 @@ with tabs[5]:
     if not all_chunks:
         st.info("ℹ️ Veritabanı boş. Önce 'Veri Yükleme' sekmesinden veritabanını yükleyin.")
     else:
-        mevzuat_chunks = [c for c in all_chunks if c["source"] == "explicit"]
-        tacit_chunks   = [c for c in all_chunks if c["source"] == "tacit"]
+        from collections import Counter as _Counter
+        type_counts = _Counter(c["doc_type"] for c in all_chunks)
+        unique_files = len(set(c["filename"] for c in all_chunks))
 
         # --- Top metrics ---
         m1, m2, m3 = st.columns(3)
         m1.metric("Toplam Bilgi Parçası", len(all_chunks))
-        m2.metric("📘 Mevzuat (Resmi Kural)", len(mevzuat_chunks))
-        m3.metric("🧠 Tacit (Deneyim)", len(tacit_chunks))
+        m2.metric("📄 Kaynak Doküman", unique_files)
+        m3.metric("🏷️ Doküman Tipi", len(type_counts))
 
         st.markdown("---")
 
-        # --- Filters and search ---
-        fcol1, fcol2 = st.columns([1, 2])
+        # --- Filters ---
+        doc_types_sorted = sorted(type_counts.keys())
+        levels_sorted = sorted(set(c["level"] for c in all_chunks if c["level"]))
+        skills_sorted = sorted(set(c["skill"] for c in all_chunks if c["skill"]))
+
+        fcol1, fcol2, fcol3, fcol4 = st.columns([1.5, 1, 1, 2])
         with fcol1:
-            source_filter = st.radio(
-                "Kaynak filtresi:",
-                options=["Tümü", "📘 Mevzuat", "🧠 Tacit"],
-                horizontal=True,
-                key="db_source_filter",
+            type_opts = ["Tümü"] + doc_types_sorted
+            doc_type_filter = st.selectbox(
+                "Doküman tipi:",
+                options=type_opts,
+                key="db_doctype_filter",
             )
         with fcol2:
+            level_filter = st.selectbox(
+                "Seviye:",
+                options=["Tümü"] + levels_sorted,
+                key="db_level_filter",
+            )
+        with fcol3:
+            skill_filter = st.selectbox(
+                "Beceri:",
+                options=["Tümü"] + skills_sorted,
+                key="db_skill_filter",
+            )
+        with fcol4:
             search_query = st.text_input(
                 "🔍 Metin içinde ara:",
                 placeholder="Örn: grille, descripteur, niveau...",
                 key="db_search",
             )
 
-        if source_filter == "📘 Mevzuat":
-            visible = mevzuat_chunks
-        elif source_filter == "🧠 Tacit":
-            visible = tacit_chunks
-        else:
-            visible = all_chunks
-
+        visible = all_chunks
+        if doc_type_filter != "Tümü":
+            visible = [c for c in visible if c["doc_type"] == doc_type_filter]
+        if level_filter != "Tümü":
+            visible = [c for c in visible if c["level"] == level_filter]
+        if skill_filter != "Tümü":
+            visible = [c for c in visible if c["skill"] == skill_filter]
         if search_query.strip():
             q = search_query.strip().lower()
             visible = [c for c in visible if q in c["text"].lower()]
@@ -943,22 +989,34 @@ with tabs[5]:
         st.caption(f"{len(visible)} parça gösteriliyor")
         st.markdown("---")
 
+        # doc_type → CSS class mapping
+        _OFFICIAL_TYPES = {"grille", "descripteur", "manuel", "methodologie", "explicit"}
+        _TACIT_TYPES    = {"tacit", "stagiaire", "brouillon"}
+
         # --- Render chunk cards ---
         for chunk in visible:
-            src = chunk["source"]
-            css_cls  = "mevzuat" if src == "explicit" else "tacit"
-            badge_cls = "badge-mevzuat" if src == "explicit" else "badge-tacit"
-            badge_lbl = "📘 Mevzuat" if src == "explicit" else "🧠 Tacit Deneyim"
-            preview = chunk["text"][:280].replace("\n", " ")
-            if len(chunk["text"]) > 280:
-                preview += "…"
+            dt = chunk["doc_type"]
+            if dt in _OFFICIAL_TYPES:
+                css_cls   = "mevzuat"
+                badge_cls = "badge-mevzuat"
+            elif dt in _TACIT_TYPES:
+                css_cls   = "tacit"
+                badge_cls = "badge-tacit"
+            else:
+                css_cls   = "mevzuat"
+                badge_cls = "badge-mevzuat"
+
+            level_tag = f" · {chunk['level']}" if chunk.get("level") else ""
+            skill_tag = f" · {chunk['skill']}" if chunk.get("skill") else ""
+            badge_lbl = dt.upper() if dt != "bilinmiyor" else "BILINMIYOR"
 
             enriched_badge = (
-                "<span class='chunk-badge' style='background:#8e44ad;color:white;'>📑 Bağlam Zenginleştirildi</span>"
+                "<span class='chunk-badge' style='background:#8e44ad;color:white;'>📑 Zenginleştirildi</span>"
                 if chunk.get("enriched") else ""
             )
             with st.expander(
-                f"{badge_lbl}  ·  Alt Parça #{chunk['chunk_index']}  ·  {chunk['char_count']} karakter"
+                f"[{badge_lbl}]{level_tag}{skill_tag}  ·  {chunk['filename']}  ·  "
+                f"Alt Parça #{chunk['chunk_index']}  ·  {chunk['char_count']} karakter"
             ):
                 st.markdown(
                     f"""<div class="chunk-card {css_cls}">
@@ -966,6 +1024,8 @@ with tabs[5]:
                         <span class="chunk-badge {badge_cls}">{badge_lbl}</span>
                         {enriched_badge}
                         Dosya: <b>{chunk['filename']}</b> &nbsp;·&nbsp;
+                        Seviye: <b>{chunk.get('level') or '—'}</b> &nbsp;·&nbsp;
+                        Beceri: <b>{chunk.get('skill') or '—'}</b> &nbsp;·&nbsp;
                         Alt parça: <b>#{chunk['chunk_index']}</b> &nbsp;·&nbsp;
                         Üst parça: <b>{chunk['parent_id']}</b> &nbsp;·&nbsp;
                         {chunk['char_count']} karakter

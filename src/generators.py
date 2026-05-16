@@ -333,7 +333,7 @@ _MOCK_CONFIDENCE_HIGH = {
     "guven_skoru": 0.91,
     "desteklenen_iddialar": 14,
     "desteklenmeyen_iddialar": 1,
-    "desteklenmeyen_liste": ["Ay başında kadro değişikliklerinin sisteme işlenme zorunluluğu mevzuat dışı."],
+    "desteklenmeyen_liste": ["Habilitasyon seans süresi sınırı mevcut dokümanlar dışında kalmaktadır."],
     "uzman_onay_tavsiyesi": "hizli_inceleme",
     "rozet_renk": "green",
     "rozet_metin": "Yüksek Güven",
@@ -345,8 +345,8 @@ _MOCK_CONFIDENCE_MED = {
     "desteklenen_iddialar": 8,
     "desteklenmeyen_iddialar": 3,
     "desteklenmeyen_liste": [
-        "Tespit yöntemi olarak 'denetim' ifadesi mevzuatta yer almamaktadır.",
-        "Belirli yasal yaptırımlar belge dışı.",
+        "Delibération eşik puanı dokümanların dışında kalmaktadır.",
+        "Belirli bant sınır değerleri kaynak belgelerde yer almamaktadır.",
     ],
     "uzman_onay_tavsiyesi": "detayli_inceleme",
     "rozet_renk": "yellow",
@@ -358,33 +358,36 @@ _MOCK_PROCESS_MAP = {
     "steps": [
         {
             "adim_no": 1,
-            "baslik": "Kadro Değişikliklerini Sisteme İşle",
-            "giris": "Ay başı kadro bilgileri",
-            "cikis": "Güncel kadro listesi",
-            "karar_noktasi": "Değişiklik var mı?",
-            "risk": "Eksik bildirim nedeniyle yanlış hesaplama",
-            "kontrol": "Sisteme girilen veriler muhasebe birimiyle karşılaştırılır",
-            "kaynak_chunk_indeksleri": ["explicit_mevzuat_p1", "explicit_mevzuat_p2"],
+            "faz": "1-Hazırlık",
+            "baslik": "Habilitasyon Belgelerini ve Grille'leri Hazırla",
+            "giris": "Sınav dönemi başlangıcı, ilgili düzey grille'leri ve CECRL descripteur belgeleri",
+            "cikis": "Sınavcıya atanan düzey ve beceri için eksiksiz grille seti",
+            "karar_noktasi": "Sınavcının ilgili düzey (A1-C1) ve beceri (PE/PO/CE/CO) için habilitasyonu var mı?",
+            "risk": "Yanlış düzey grille'si kullanarak puanlama yapılması",
+            "kontrol": "Grille başlığındaki düzey ve beceri kodu, sınavcının habilitation belgesiyle karşılaştırılır",
+            "kaynak_chunk_indeksleri": ["manuel-exacor_par1", "B2_stagiaire_par0"],
         },
         {
             "adim_no": 2,
-            "baslik": "Göreve Başlama ve Ayrılış Bildirimlerini Tamamla",
-            "giris": "Personel hareketleri listesi",
-            "cikis": "Onaylı göreve başlama belgesi",
-            "karar_noktasi": "Belge eksiksiz mi?",
-            "risk": "Belgesiz personele maaş işlenmesi",
-            "kontrol": "Özlük dosyasında belge varlığı kontrol edilir",
-            "kaynak_chunk_indeksleri": ["explicit_mevzuat_p3"],
+            "faz": "2-Bireysel Düzeltme",
+            "baslik": "Bireysel Analitik Notlandırmayı Gerçekleştir",
+            "giris": "Anonim adayın kopyası, ilgili düzeyin grille'si ve descripteur'ları",
+            "cikis": "Her kriter için bant puanı ve toplam not",
+            "karar_noktasi": "Kopya atipik mi? (Kriterler arasında iki banttan fazla fark var mı?)",
+            "risk": "Halo etkisi — tek bir kriterin diğer kriterlerin puanlamasını etkilemesi",
+            "kontrol": "Her kriter bağımsız olarak değerlendirilir; grille tanımlayıcılarıyla çapraz kontrol yapılır",
+            "kaynak_chunk_indeksleri": ["B2_Grille_PE_par0", "Présentation_copies_atypiques_par4"],
         },
         {
             "adim_no": 3,
-            "baslik": "Ek Ödeme ve Kesintileri Gir",
-            "giris": "İcra yazıları, tazminat kararları",
-            "cikis": "Eksiksiz kesinti bordrosu",
-            "karar_noktasi": "İcra 1/4 sınırını aşıyor mu?",
-            "risk": "Yasal limit aşımı ve personel şikayeti",
-            "kontrol": "Net aylığın 1/4 hesabı yapılır",
-            "kaynak_chunk_indeksleri": ["explicit_mevzuat_p4"],
+            "faz": "3-Çift Düzeltme ve Uzlaşma",
+            "baslik": "Çift Düzeltme ve Delibération Sürecini Yönet",
+            "giris": "İki sınavcının bağımsız notları ve gerekçeleri",
+            "cikis": "Uzlaşılan nihai not veya arbitraj kararı",
+            "karar_noktasi": "İki sınavcının notları arasındaki fark kabul edilebilir sınırda mı?",
+            "risk": "Sınavcıların birbirini etkileyerek bağımsızlıklarını yitirmesi",
+            "kontrol": "Delibération tutanağı tutulur; anlaşmazlık halinde üçüncü sınavcı devreye girer",
+            "kaynak_chunk_indeksleri": ["manuel-exacor_par3", "DELF_B2_examinateur_par2"],
         },
     ]
 }
@@ -393,19 +396,19 @@ _MOCK_ERROR_CARDS = {
     "hata_kartlari": [
         {
             "kart_no": 1,
-            "hata": "Göreve başlama belgesi alınmadan maaş sisteme işlenmesi",
-            "kok_neden": "Yeni mutemet, personelin fiziksel varlığını belge yerine geçerli sayıyor",
-            "tespit_yontemi": "Denetimde özlük dosyasında göreve başlama belgesi bulunamaması",
-            "dogru_uygulama": "Belge imzalanmadan maaş sisteme girilmez; belge süreci tamamlanana kadar beklenir",
-            "kaynak_chunk_indeksleri": ["explicit_mevzuat_p3", "tacit_interview_clean_p1"],
+            "hata": "Halo Etkisi — Bir Kriterin Diğer Kriterlerin Puanlamasını Etkilemesi",
+            "kok_neden": "Sınavcı, adayın güçlü yanını (örn. sözcük zenginliği) fark edince diğer kriterlere de bilinçsizce yüksek puan veriyor",
+            "tespit_yontemi": "Tüm kriterler için neredeyse aynı bant puanı verildiğinde veya bir kriterin beklenen profille örtüşmediği durumlarda",
+            "dogru_uygulama": "Her kriter grille'deki tanımlayıcıya göre bağımsız değerlendirilir; diğer kriterlerin puanı kapsandıktan sonra bakılır",
+            "kaynak_chunk_indeksleri": ["B2_Grille_PE_par1", "manuel-exacor_par5"],
         },
         {
             "kart_no": 2,
-            "hata": "Ocak ayında kümülatif gelir vergisi matrahının sıfırlanmaması",
-            "kok_neden": "Sistem otomatik sıfırlamaz; mutemet manuel adımı unutuyor",
-            "tespit_yontemi": "Personel yanlış vergi diliminden vergi ödediğini fark edip şikayet ediyor",
-            "dogru_uygulama": "Her yılın ilk bordrosunda kümülatif matrah sıfırlanır ve kayıt altına alınır",
-            "kaynak_chunk_indeksleri": ["explicit_mevzuat_p1"],
+            "hata": "Atipik Kopya Prosedürünü Başlatmama",
+            "kok_neden": "Yeni sınavcı, kopyanın standart grille'e uymadığını fark etmeden doğrudan puanlama yapmaya çalışıyor",
+            "tespit_yontemi": "Aynı kopyadaki kriterler arasında iki banttan fazla fark (örn. B2 düzeyi sözdizimi ama A1 düzeyi söylem yapısı)",
+            "dogru_uygulama": "Kopya atipik olarak işaretlenir, ikinci bir uzman sınavcıya yönlendirilir; tek başına puanlama tamamlanmaz",
+            "kaynak_chunk_indeksleri": ["Présentation_copies_atypiques_par2", "manuel-exacor_par7"],
         },
     ]
 }
@@ -413,22 +416,22 @@ _MOCK_ERROR_CARDS = {
 _MOCK_GLOSSARY = {
     "terimler": [
         {
-            "terim": "Kümülatif Matrah",
-            "tanim": "Yıl başından itibaren biriken gelir vergisi hesaplama tabanı; her Ocak ayında sıfırlanır.",
-            "kullanim_ornegi": "Ocak bordrosunda kümülatif matrah sıfırlanmazsa vergi dilimi yanlış hesaplanır.",
-            "kaynak_chunk_indeksleri": ["explicit_mevzuat_p1"],
+            "terim": "Grille d'évaluation",
+            "tanim": "Her DELF/DALF düzeyi ve becerisi için geliştirilmiş; adayın üretimini ölçüt ve bantlara göre analitik olarak puanlayan resmi araç.",
+            "kullanim_ornegi": "B2 PE grille'si söylem tutarlılığı, sözcüksel yeterlik ve biçimbilimsel-sözdizimsel doğruluk olmak üzere dört kriter içerir.",
+            "kaynak_chunk_indeksleri": ["B2_Grille_PE_par0"],
         },
         {
-            "terim": "İcra Kesintisi",
-            "tanim": "Mahkeme veya icra müdürlüğü kararıyla maaştan yapılan yasal kesinti; net aylığın 1/4'ünü geçemez.",
-            "kullanim_ornegi": "İcra kesintisi uygulamak için yazılı tebligat şarttır.",
-            "kaynak_chunk_indeksleri": ["explicit_mevzuat_p1", "explicit_mevzuat_p4"],
+            "terim": "Descripteur",
+            "tanim": "Bir adayın belirli bir CECRL düzeyinde neler yapabileceğini betimleyen ölçütsel ifade; grille bantlarının referans çerçevesini oluşturur.",
+            "kullanim_ornegi": "A2 PE descripteur'u, adayın temel bağlaçlar kullanan basit cümleler üretebileceğini belirtir.",
+            "kaynak_chunk_indeksleri": ["Descripteurs_CECRL_A1_B2_par1"],
         },
         {
-            "terim": "Göreve Başlama Belgesi",
-            "tanim": "Personelin kuruma ilk katıldığı günü resmi olarak belgeleyen, amir onaylı formdur.",
-            "kullanim_ornegi": "Göreve başlama belgesi olmadan maaş sisteme işlenemez.",
-            "kaynak_chunk_indeksleri": ["explicit_mevzuat_p3"],
+            "terim": "Copie atypique",
+            "tanim": "Yeterlik profili grille'nin olağan bantlarından çıkan, arbitraj prosedürü gerektiren aday üretimi.",
+            "kullanim_ornegi": "Kriterler arasında iki banttan fazla fark olduğunda kopya atipik sayılır ve ikinci bir sınavcıya yönlendirilir.",
+            "kaynak_chunk_indeksleri": ["Présentation_copies_atypiques_par2"],
         },
     ]
 }
@@ -437,6 +440,7 @@ _MOCK_PROCESS_MAP_FR = {
     "steps": [
         {
             "adim_no": 1,
+            "faz": "1-Préparation",
             "baslik": "Vérifier la conformité format de la copie candidat",
             "giris": "Production écrite/orale remise par le candidat",
             "cikis": "Copie anonymisée conforme au format DELF",
@@ -447,6 +451,7 @@ _MOCK_PROCESS_MAP_FR = {
         },
         {
             "adim_no": 2,
+            "faz": "2-Correction individuelle",
             "baslik": "Réaliser une première évaluation holistique",
             "giris": "Copie anonyme + grille du niveau visé",
             "cikis": "Positionnement holistique (A1/A2/B1/B2/C1)",
@@ -457,6 +462,7 @@ _MOCK_PROCESS_MAP_FR = {
         },
         {
             "adim_no": 3,
+            "faz": "2-Correction individuelle",
             "baslik": "Appliquer la notation analytique critère par critère",
             "giris": "Décision holistique + grille du niveau",
             "cikis": "Score par critère + total",
@@ -561,37 +567,38 @@ _MOCK_FIXTURES_BY_LANG: dict[OutputLanguage, dict[str, dict]] = {
 
 
 _MOCK_SIMULATION = {
-    "senaryo_basligi": "Ay Ortasında İşe Başlayan Personelin Maaş Hesabı",
+    "senaryo_basligi": "B2 PE Değerlendirmesinde Halo Etkisini Tanıma",
     "durum_aciklamasi": (
-        "Kurum bünyesine 23 Mart tarihinde katılan Memur A'nın ilk maaşını hesaplamanız gerekiyor. "
-        "Mart ayı 31 gün çekmektedir. Brüt maaşı 25.000 TL olarak belirlendi."
+        "Bir B2 PE kopyasını değerlendiriyorsunuz. Adayın sözcük zenginliği ve sözdizimi beklentilerin üzerinde. "
+        "Ancak söylem tutarlılığını incelerken paragraflar arasındaki geçişlerin zayıf olduğunu fark ediyorsunuz. "
+        "Sözcüksel yeterliliğe 3/3, sözdizimsel doğruluğa 2/3 verdikten sonra söylem tutarlılığı kriteri için ne yapacaksınız?"
     ),
-    "soru": "Bu personelin Mart ayı brüt maaşını nasıl hesaplarsınız?",
+    "soru": "Söylem tutarlılığı kriteri için hangi puanı verirsiniz?",
     "secenekler": [
         {
             "id": "A",
-            "metin": "Brüt maaşı 31'e bölüp 9 ile çarparım. SGK Form 4A'yı 23 Mart tarihi ile bildiririm.",
+            "metin": "Söylem tutarlılığını diğer kriterlerden bağımsız olarak grille tanımlayıcısına göre değerlendiririm; zayıf bağlantılar nedeniyle 1/3 veririm.",
             "dogru_mu": True,
-            "geri_bildirim": "Doğru! Ay ortası işe girişte kısmi maaş hesabı bu şekilde yapılır.",
-            "sonuc": "Personel doğru tutar üzerinden maaş alır.",
+            "geri_bildirim": "Doğru! Her kriter grille tanımlayıcısına göre bağımsız değerlendirilir. Diğer kriterlerin puanı bu kararı etkilememelidir.",
+            "sonuc": "Aday profili doğru yansıtılır; söylem zayıflığı raporlanmış olur.",
         },
         {
             "id": "B",
-            "metin": "Tam ay maaşı öderim, zira personel resmi kadro listesinde bu ay yer alıyor.",
+            "metin": "Diğer kriterler yüksek olduğundan söylem tutarlılığına da 3/3 veririm; genel izlenim güçlü.",
             "dogru_mu": False,
-            "geri_bildirim": "Yanlış. Çalışılmayan günler için maaş ödenmez.",
-            "sonuc": "Fazla ödeme nedeniyle iade süreci başlar.",
+            "geri_bildirim": "Yanlış. Bu halo etkisidir. Güçlü sözcük kullanımı söylem tutarlılığı kriterini örtmemeli.",
+            "sonuc": "Aday gerçek profil yerine yapay olarak yüksek puan alır; değerlendirme güvenilirliği düşer.",
         },
         {
             "id": "C",
-            "metin": "Bir sonraki ay toplu öderim; bu ay için herhangi bir işlem yapmam.",
+            "metin": "Kopya atipik olarak işaretlerim ve ikinci sınavcıya gönderirim.",
             "dogru_mu": False,
-            "geri_bildirim": "Yanlış. Personelin maaşı fiilen çalıştığı dönem için aynı ay ödenmelidir.",
-            "sonuc": "Gecikmiş ödeme nedeniyle idari işlem başlatılabilir.",
+            "geri_bildirim": "Yanlış. Atipik prosedür kriterler arasında iki banttan fazla fark olduğunda devreye girer; bu senaryoda durum bu değil.",
+            "sonuc": "Gereksiz arbitraj süreci başlatılır; süreç uzar.",
         },
     ],
-    "ogrenme_hedefi": "Ay ortası işe girişlerde kısmi maaş hesabı ve SGK Form 4A bildirim tarihini doğru uygulamak.",
-    "kaynak_chunk_indeksleri": ["explicit_mevzuat_p2", "tacit_interview_clean_p3"],
+    "ogrenme_hedefi": "Halo etkisini tanımak ve her DELF kriterini grille tanımlayıcısına göre bağımsız değerlendirmek.",
+    "kaynak_chunk_indeksleri": ["B2_Grille_PE_par1", "manuel-exacor_par5"],
 }
 
 
