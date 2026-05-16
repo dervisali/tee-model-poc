@@ -26,8 +26,13 @@ class TestProcessMapBilingual:
         assert "steps" in out
         assert len(out["steps"]) >= 1
         assert "_confidence" in out
-        # TR fixture has Turkish content
-        assert any("Aday" in s["baslik"] or "kadro" in s["baslik"].lower() for s in out["steps"])
+        # TR fixture is DELF domain — at least one step must reference a DELF
+        # concept (grille, descripteur, habilitasyon, délibération, bant, etc.)
+        delf_terms = ("grille", "descripteur", "habilitasyon", "délibération",
+                      "delibération", "bant", "kriter", "atipik", "düzeltme")
+        haystack = " ".join(s["baslik"].lower() for s in out["steps"])
+        assert any(term in haystack for term in delf_terms), \
+            f"No DELF term found in TR baslik values: {haystack!r}"
 
     def test_fr_fixture_returns_french_content(self):
         from src.generators import generate_process_map

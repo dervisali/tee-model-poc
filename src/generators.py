@@ -602,8 +602,7 @@ _MOCK_SIMULATION = {
 }
 
 
-# Populate the TR fixtures lazily (kept payroll content for backward compat;
-# follow-up commit can shift these to DELF too).
+# Populate the TR fixtures lazily — all DELF/DALF examiner-correction domain.
 _MOCK_FIXTURES_BY_LANG["tr"] = {
     "process_map": _MOCK_PROCESS_MAP,
     "error_cards": _MOCK_ERROR_CARDS,
