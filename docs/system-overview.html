@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TEE-Model — System Overview for LLM Analysis</title>
+  <style>
+    :root {
+      --accent: #2563eb;
+      --accent-light: #eff6ff;
+      --warn: #f59e0b;
+      --warn-light: #fffbeb;
+      --ok: #16a34a;
+      --ok-light: #f0fdf4;
+      --border: #e2e8f0;
+      --text: #1e293b;
+      --muted: #64748b;
+      --code-bg: #f8fafc;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: var(--text);
+      line-height: 1.7;
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 2rem 1.5rem 4rem;
+    }
+    h1 { font-size: 2rem; margin-bottom: .5rem; }
+    h2 { font-size: 1.4rem; margin: 2.5rem 0 .75rem; border-bottom: 2px solid var(--border); padding-bottom: .4rem; color: var(--accent); }
+    h3 { font-size: 1.1rem; margin: 1.5rem 0 .5rem; }
+    h4 { font-size: .95rem; margin: 1rem 0 .3rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+    p  { margin-bottom: .9rem; }
+    ul, ol { padding-left: 1.4rem; margin-bottom: .9rem; }
+    li { margin-bottom: .35rem; }
+    code {
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: .88em;
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: .15em .45em;
+    }
+    pre {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 1rem 1.25rem;
+      overflow-x: auto;
+      font-size: .85rem;
+      margin-bottom: 1rem;
+    }
+    pre code { background: none; border: none; padding: 0; font-size: inherit; }
+    .callout {
+      border-left: 4px solid var(--accent);
+      background: var(--accent-light);
+      padding: .75rem 1rem;
+      border-radius: 0 6px 6px 0;
+      margin-bottom: 1rem;
+    }
+    .callout.warn  { border-color: var(--warn); background: var(--warn-light); }
+    .callout.ok    { border-color: var(--ok);   background: var(--ok-light);   }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: .9rem;
+      margin-bottom: 1.25rem;
+    }
+    th { background: var(--accent); color: #fff; text-align: left; padding: .55rem .85rem; }
+    td { padding: .5rem .85rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+    tr:nth-child(even) td { background: #f8fafc; }
+    .badge {
+      display: inline-block;
+      font-size: .75rem;
+      font-weight: 600;
+      padding: .15em .55em;
+      border-radius: 999px;
+      background: var(--accent-light);
+      color: var(--accent);
+      border: 1px solid var(--accent);
+      margin-right: .25rem;
+    }
+    .badge.green { background: var(--ok-light); color: var(--ok); border-color: var(--ok); }
+    .badge.orange { background: var(--warn-light); color: #b45309; border-color: var(--warn); }
+    .diagram {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 1.25rem;
+      font-family: monospace;
+      font-size: .82rem;
+      white-space: pre;
+      overflow-x: auto;
+      margin-bottom: 1rem;
+      line-height: 1.5;
+    }
+    .toc { background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.5rem; margin-bottom: 2rem; }
+    .toc h4 { margin-bottom: .5rem; }
+    .toc ol { margin: 0; }
+    .toc li { margin-bottom: .2rem; }
+    .toc a { color: var(--accent); text-decoration: none; }
+    .toc a:hover { text-decoration: underline; }
+    hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  </style>
+</head>
+<body>
+
+<h1>TEE-Model — System Overview</h1>
+<p style="color:var(--muted); font-size:.9rem;">
+  Version on branch <code>feature/delf-corpus-migration</code> · Last updated 2026-05-16 ·
+  This document is intended to be fed to a large language model for analysis and improvement suggestions.
+</p>
+
+<div class="toc">
+  <h4>Table of Contents</h4>
+  <ol>
+    <li><a href="#users">Who Uses This Application</a></li>
+    <li><a href="#goal">Final Goal</a></li>
+    <li><a href="#architecture">System Architecture</a></li>
+    <li><a href="#corpus">Corpus &amp; Ingestion Pipeline</a></li>
+    <li><a href="#retrieval">Retrieval Pipeline</a></li>
+    <li><a href="#generation">Generation Pipeline</a></li>
+    <li><a href="#frontend">Frontend &amp; UX</a></li>
+    <li><a href="#config">Key Configuration Parameters</a></li>
+    <li><a href="#known-gaps">Known Gaps &amp; Deferred Work</a></li>
+    <li><a href="#rag-trends">RAG Trends &amp; Improvement Opportunities</a></li>
+  </ol>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="users">1. Who Uses This Application</h2>
+
+<p>
+  TEE-Model is built for <strong>DELF/DALF examiner-correctors</strong>
+  (<em>sınavcı-düzelticiler</em> in Turkish) — specifically those who are
+  <strong>Turkish-speaking professionals trained to administer and score
+  French-language DELF/DALF certification examinations</strong>.
+</p>
+
+<h3>Primary User Persona</h3>
+<ul>
+  <li><strong>Role:</strong> Newly qualified or experienced DELF/DALF examiner-corrector working in Turkey under Alliance Française or a recognised examination centre.</li>
+  <li><strong>Language profile:</strong> Native Turkish speaker with professional-level French. Comfortable reading French exam materials but prefers to reason in Turkish.</li>
+  <li><strong>Pain point:</strong> The official DELF/DALF reference corpus (grilles, descripteurs, méthodologie documents, stagiaire guides) is large, dense, and entirely in French. Correctly applying scoring criteria — especially for edge cases like atypical copies or score disagreements between two correctors — requires deep familiarity that takes years to develop.</li>
+  <li><strong>Session context:</strong> Uses the app before an examination session to review the protocol, during training to test their understanding, and after a session to reflect on scoring decisions.</li>
+</ul>
+
+<h3>Secondary Users</h3>
+<ul>
+  <li><strong>Training coordinators</strong> running examiner formation sessions — they use the process map and simulation generators to build training exercises.</li>
+  <li><strong>Exam centre administrators</strong> who need a quick reference for examination procedures without reading the full 500-page Inventaire or CECRL.</li>
+</ul>
+
+<div class="callout">
+  <strong>Why bilingual?</strong> The corpus is entirely in French, but the user's working language is Turkish. The system must retrieve from French documents and generate output in the user's chosen language (Turkish or French), not translate the whole corpus.
+</div>
+
+<!-- ============================================================ -->
+<h2 id="goal">2. Final Goal</h2>
+
+<p>
+  The final goal of TEE-Model is a <strong>production-deployed, bilingual RAG assistant
+  that acts as an always-available expert colleague for DELF/DALF examiners</strong>,
+  enabling them to:
+</p>
+
+<ol>
+  <li><strong>Understand the full examination protocol</strong> — from habilitation through double correction to finalisation — with step-by-step grounded guidance.</li>
+  <li><strong>Identify and avoid scoring errors</strong> — a curated error-card library derived from the official methodology documents and real annotated copies.</li>
+  <li><strong>Look up CECRL/DELF terminology</strong> instantly in their native language, with French technical terms preserved.</li>
+  <li><strong>Practise decision-making</strong> through interactive simulations of real edge cases (atypical copies, borderline scores, level disagreements).</li>
+  <li><strong>Trust every answer</strong> — all generated content is grounded exclusively in the official corpus; hallucinated or out-of-corpus information is structurally blocked.</li>
+</ol>
+
+<p>
+  The deployment target is <strong>Google Cloud Run</strong> (containerised Streamlit app),
+  served over HTTPS, with the ChromaDB vector store persisted on Cloud Storage via FUSE mount.
+  The system is designed to handle multiple concurrent examination centres across Turkey.
+</p>
+
+<div class="callout ok">
+  <strong>Current milestone reached (2026-05-16):</strong> Full corpus ingested (56 files, 4 950 child chunks),
+  bilingual process map generates 10–15 grounded steps covering all 4 examination phases,
+  cross-lingual retrieval and both output languages verified live on Vertex AI.
+</div>
+
+<!-- ============================================================ -->
+<h2 id="architecture">3. System Architecture</h2>
+
+<div class="diagram">
+┌─────────────────────────────────────────────────────────────────────┐
+│                        STREAMLIT FRONTEND                           │
+│  Tabs: Data Loader | Process Map | Error Cards | Simulation |       │
+│        Glossary | Expert Panel | Prompt Optimizer | DB Explorer     │
+│  Sidebar: language toggle (TR / FR)                                 │
+└───────────────────────────┬─────────────────────────────────────────┘
+                            │  user action (button click)
+                            ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                     GENERATION LAYER  (src/generators.py)           │
+│  generate_process_map()  generate_error_cards()                     │
+│  generate_glossary()     generate_simulation()                      │
+│                                                                     │
+│  Multi-phase retrieval (process map: 3 queries × top-8, merged      │
+│  to top-20 unique parents) → build grounded system prompt →         │
+│  llm_generate(response_format=PydanticSchema)                       │
+└───────────────────────────┬─────────────────────────────────────────┘
+                            │  retrieve_context(query, top_k)
+                            ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                     RETRIEVAL LAYER  (src/retrieval.py)             │
+│                                                                     │
+│  ┌─────────────────────┐      ┌──────────────────────────────────┐  │
+│  │  QUERY PROCESSING   │      │  HYBRID SEARCH                   │  │
+│  │  detect_language()  │      │  Dense (70%): ChromaDB cosine    │  │
+│  │  translate_query()  │─────▶│  Sparse (30%): BM25 French/TR    │  │
+│  │  (TR→FR if needed)  │      │  Fusion: RRF (k=60)              │  │
+│  └─────────────────────┘      └──────────────┬───────────────────┘  │
+│                                              │ child chunk hits      │
+│                                              ▼                       │
+│                               ┌─────────────────────────────────┐   │
+│                               │  PARENT-DOCUMENT RETRIEVAL      │   │
+│                               │  child hit → fetch parent chunk  │   │
+│                               │  deduplicate by parent_id        │   │
+│                               │  re-rank by RRF score            │   │
+│                               └─────────────────────────────────┘   │
+└──────────────────────┬──────────────────────────────────────────────┘
+                       │  embed(query)         embed(passages)
+                       ▼                             ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                 INFRASTRUCTURE LAYER                                │
+│                                                                     │
+│  Vertex AI                    ChromaDB (local persist)              │
+│  ┌───────────────────────┐    ┌──────────────────────────────────┐  │
+│  │ gemini-embedding-001  │    │ tee_children  (4 950 child chunks)│  │
+│  │ 3072 dimensions, L2   │    │ tee_parents   (1 302 parent docs) │  │
+│  │ normalised            │    └──────────────────────────────────┘  │
+│  │ gemini-2.5-flash      │                                          │
+│  │ structured JSON output│    BM25 index (bm25_index.pkl)           │
+│  └───────────────────────┘    French: élision+stop+Snowball stem    │
+└─────────────────────────────────────────────────────────────────────┘
+</div>
+
+<h3>Key Design Decisions</h3>
+<table>
+  <tr><th>Decision</th><th>Choice</th><th>Rationale</th></tr>
+  <tr><td>Retrieval pattern</td><td>Parent-Document Retrieval (PDR)</td><td>Small child chunks (~200 chars) searched for precision; large parent chunks (~700 chars) returned for context richness. Prevents the LLM receiving fragments too short to interpret.</td></tr>
+  <tr><td>Hybrid search</td><td>Dense 70% + BM25 30%, fused via RRF</td><td>Dense captures semantic similarity across languages; BM25 catches exact DELF terminology (grille, descripteur, CECRL) that embedding models may not emphasise.</td></tr>
+  <tr><td>Cross-lingual retrieval</td><td>Dense: original query (multilingual embedding); BM25: translated query (Gemini Flash)</td><td>Avoids translating the 4 950-chunk corpus. Only the BM25 sparse path needs a translated query; the dense path handles multilingual natively.</td></tr>
+  <tr><td>Structured generation</td><td>Pydantic schemas as <code>response_format</code></td><td>Guarantees the LLM returns a valid, field-complete JSON object on every call. Eliminates post-processing regex hacks.</td></tr>
+  <tr><td>Grounding enforcement</td><td>System prompt: "use ONLY the provided context documents"</td><td>DELF scoring protocol is safety-critical; hallucinated criteria could cause real examination errors. Hard grounding is non-negotiable.</td></tr>
+  <tr><td>Multi-phase retrieval (process map)</td><td>3 targeted queries merged to top-20 unique parents</td><td>A single generic query retrieved only 8 chunks covering 1-2 phases. Three phase-specific queries (preparation / individual correction / double correction+finalisation) ensure all phases appear in context.</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="corpus">4. Corpus &amp; Ingestion Pipeline</h2>
+
+<h3>Corpus Statistics</h3>
+<table>
+  <tr><th>Metric</th><th>Value</th></tr>
+  <tr><td>Total source files</td><td>56 (PDF, DOCX, PPTX, JPEG)</td></tr>
+  <tr><td>High-confidence classified</td><td>45 / 56</td></tr>
+  <tr><td>Manual-review bucket</td><td>11 / 56</td></tr>
+  <tr><td>Total child chunks</td><td>4 950</td></tr>
+  <tr><td>Total parent chunks</td><td>1 302</td></tr>
+  <tr><td>Embedding dimension</td><td>3 072 (gemini-embedding-001)</td></tr>
+  <tr><td>Corpus primary language</td><td>French (fr)</td></tr>
+</table>
+
+<h3>Document Types in Corpus</h3>
+<table>
+  <tr><th>doc_type</th><th>Chunk count</th><th>Examples</th></tr>
+  <tr><td><code>manuel</code></td><td>2 547</td><td>Inventaire ONLINE, manuel-exacor</td></tr>
+  <tr><td><code>descripteur</code></td><td>879</td><td>Descripteurs CECRL A1-B2, Échelle globale, Niveaux PE</td></tr>
+  <tr><td><code>sujet</code></td><td>592</td><td>PO exam subjects per level A1-C1</td></tr>
+  <tr><td><code>stagiaire</code></td><td>461</td><td>Trainee guides A1-B2</td></tr>
+  <tr><td><code>other</code></td><td>197</td><td>WhatsApp images, annotated copies</td></tr>
+  <tr><td><code>methodologie</code></td><td>98</td><td>DALF C1 PO méthodologie, Introduction critères</td></tr>
+  <tr><td><code>grille</code></td><td>84</td><td>Scoring grids A1-B2 PE/PO</td></tr>
+  <tr><td><code>presentation</code></td><td>48</td><td>Diaporama rôle EC, Dispositif DELF-DALF</td></tr>
+  <tr><td><code>copie</code></td><td>44</td><td>Présentation copies atypiques</td></tr>
+</table>
+
+<h3>Chunking Strategy</h3>
+<ul>
+  <li><strong>Strategy:</strong> Paragraph-based (also: semantic, fixed available via <code>CHUNKING_STRATEGY</code>)</li>
+  <li><strong>Parent chunk:</strong> ~700 chars (min 300, max 800) — unit returned to the LLM</li>
+  <li><strong>Child chunk:</strong> ~200 chars (min 50) — unit searched in the vector store</li>
+  <li><strong>PDF OCR fallback:</strong> pdfplumber → pypdfium2 render → pytesseract (for image-only PDFs)</li>
+  <li><strong>Per-page chunking:</strong> performed caller-side in <code>src/ingestion.py</code> to preserve page-precise citations</li>
+</ul>
+
+<h3>Chunk Metadata Schema (<code>src/chunk_metadata.py</code>)</h3>
+<pre><code>ChunkMetadata:
+  source_file: str          # absolute path
+  source_filename: str      # basename used for citations
+  page: int | None          # page number (None for non-PDF)
+  level: str                # A1 | A2 | B1 | B2 | C1 | general
+  skill: str                # PE | PO | CE | CO | general
+  doc_type: str             # see table above
+  language: str             # fr | tr
+  is_authoritative: bool    # official DELF doc vs. draft/annotation
+  classifier_confidence: float  # regex classifier confidence 0.0-1.0</code></pre>
+
+<!-- ============================================================ -->
+<h2 id="retrieval">5. Retrieval Pipeline</h2>
+
+<p>Entry point: <code>src/retrieval.py :: retrieve_context(query, top_k)</code></p>
+
+<h3>Step-by-step Flow</h3>
+<ol>
+  <li><strong>Language detection</strong> (<code>src/query_translator.py</code>): heuristic on character set + morphology → <code>"tr"</code> or <code>"fr"</code></li>
+  <li><strong>Query translation</strong> (if cross-lingual): when query language ≠ corpus language (<code>fr</code>), calls Gemini Flash to translate the query for the BM25 path only. Dense path always uses the original query (multilingual embedding handles it natively). Translation is <code>lru_cache</code>d per query string.</li>
+  <li><strong>Dense retrieval</strong>: embed query with <code>gemini-embedding-001</code> (RETRIEVAL_QUERY task type) → cosine similarity search in ChromaDB <code>tee_children</code> collection → returns up to <code>top_k × 2</code> candidates with L2 distance.</li>
+  <li><strong>BM25 retrieval</strong>: tokenise query (French: élision split + Snowball stemmer + ~85 stop-words; Turkish: basic normalisation) → BM25Okapi score against indexed child texts → returns ranked list.</li>
+  <li><strong>RRF fusion</strong>: Reciprocal Rank Fusion merges dense and BM25 rankings. Formula: <code>score = Σ 1/(k + rank_i)</code> where <code>k=60</code> (Cormack 2009). Dense weight: 70%; BM25: 30% (configured via <code>HYBRID_ALPHA</code>).</li>
+  <li><strong>Parent fetch</strong>: for each top-k child hit, fetch its parent chunk from <code>tee_parents</code> ChromaDB collection by <code>parent_id</code>.</li>
+  <li><strong>Deduplication</strong>: if multiple child hits share a parent, keep the child with the best RRF score.</li>
+  <li><strong>Context assembly</strong> (<code>build_context_text()</code>): format parent texts as <code>[Kaynak N: filename — parent_id]\n{text}</code> and return a single string passed to the LLM system prompt.</li>
+</ol>
+
+<h3>Retrieval Parameters</h3>
+<table>
+  <tr><th>Parameter</th><th>Default</th><th>Notes</th></tr>
+  <tr><td><code>RETRIEVAL_TOP_K</code></td><td>5</td><td>Global default; generators override per-call (process map uses multi-phase with top_k=8 per query)</td></tr>
+  <tr><td><code>RETRIEVAL_DISTANCE_THRESHOLD</code></td><td>0.7</td><td>L2 distance cap on dense results</td></tr>
+  <tr><td><code>RETRIEVAL_FALLBACK_THRESHOLD</code></td><td>1.2</td><td>Looser threshold used when fewer than <code>_MIN_CONTEXT_CHUNKS</code> pass the normal threshold</td></tr>
+  <tr><td><code>HYBRID_ALPHA</code></td><td>0.7</td><td>Weight of dense signal in RRF; 1-alpha = BM25 weight</td></tr>
+  <tr><td><code>HYBRID_RRF_K</code></td><td>60</td><td>RRF constant; higher = less sensitive to rank differences at the top</td></tr>
+</table>
+
+<h3>Feature Flags</h3>
+<table>
+  <tr><th>Flag</th><th>Default</th><th>Effect when enabled</th></tr>
+  <tr><td><code>ENABLE_HYBRID_SEARCH</code></td><td>true</td><td>Enables BM25 + dense fusion. When false, dense-only.</td></tr>
+  <tr><td><code>ENABLE_QUERY_REWRITING</code></td><td>false</td><td>Calls <code>src/query_rewriter.py</code> to generate 3 query variants; merges all results before generation.</td></tr>
+  <tr><td><code>ENABLE_CONTEXTUAL_ENRICHMENT</code></td><td>false (cost control)</td><td>During ingestion, prepends a per-chunk LLM-generated context summary to each child chunk text before embedding. Improves retrieval precision at the cost of one Gemini call per chunk (~4 950 extra calls).</td></tr>
+  <tr><td><code>ENABLE_CONFIDENCE_SCORING</code></td><td>true</td><td>After generation, runs a second LLM pass scoring the output against retrieved chunks (faithfulness, completeness). Result stored in <code>_confidence</code> field.</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="generation">6. Generation Pipeline</h2>
+
+<p>Four content generators, each producing a distinct Pydantic-validated structure:</p>
+
+<table>
+  <tr><th>Generator</th><th>Output Schema</th><th>top_k</th><th>Key fields</th></tr>
+  <tr>
+    <td><code>generate_process_map()</code></td>
+    <td><code>ProcessMapSchema</code></td>
+    <td>3 × 8 → top-20 merged</td>
+    <td><code>adim_no, faz, baslik, giris, cikis, karar_noktasi, risk, kontrol, kaynak_chunk_indeksleri</code> · min 8 steps enforced</td>
+  </tr>
+  <tr>
+    <td><code>generate_error_cards()</code></td>
+    <td><code>ErrorCardsSchema</code></td>
+    <td>8</td>
+    <td><code>kart_no, hata, kok_neden, tespit_yontemi, dogru_uygulama, kaynak_chunk_indeksleri</code></td>
+  </tr>
+  <tr>
+    <td><code>generate_glossary()</code></td>
+    <td><code>GlossarySchema</code></td>
+    <td>8</td>
+    <td><code>terim, tanim, cecrl_seviyesi, kullanim_ornegi, kaynak_chunk_indeksleri</code></td>
+  </tr>
+  <tr>
+    <td><code>generate_simulation()</code></td>
+    <td><code>SimulationSchema</code></td>
+    <td>5</td>
+    <td><code>senaryo, soru, secenekler[id,metin,dogru_mu,geri_bildirim,sonuc], ogrenme_hedefi</code></td>
+  </tr>
+</table>
+
+<h3>Bilingual Output</h3>
+<p>
+  All generators accept a <code>language: Literal["tr","fr"]</code> parameter.
+  Separate prompt templates exist for each language in <code>_GENERATOR_PROMPTS</code>.
+  The grounding system instruction enforces output language while preserving French
+  DELF/CECRL technical terms (PE, PO, grille, descripteur, etc.) regardless of output language.
+  The UI sidebar radio button switches the active language for all generators simultaneously.
+</p>
+
+<h3>Grounding System Prompt Template (TR)</h3>
+<pre><code>Sen bir DELF/DALF sınavcı-düzelticisi eğitmenisin.
+YALNIZCA aşağıda sağlanan Fransızca bağlam belgelerini kullan.
+Bağlamda yer almayan hiçbir bilgiyi üretme veya tahmin etme.
+
+BAĞLAM:
+[Kaynak 1: B2_Grille_PO.pdf — B2_Grille_PO_pdf_par3]
+... (parent text) ...
+
+[Kaynak 2: manuel-exacor.pdf — manuel_exacor_pdf_par17]
+... (parent text) ...
+
+KAYNAK CHUNK İNDEKSLERİ: [B2_Grille_PO_pdf_par3, ...]</code></pre>
+
+<h3>Prompt Optimizer</h3>
+<p>
+  The <strong>Prompt Optimizer</strong> tab (<code>src/prompt_optimizer.py</code>) allows running
+  alternative query/instruction variants for each generator and scoring them with an LLM judge
+  on three axes: <em>grounding</em> (0-10), <em>completeness</em> (0-10), <em>usefulness</em> (0-10).
+  The winning variant can be saved to <code>optimized_prompts.json</code> and will be used
+  automatically by the generator on subsequent calls.
+  Current variants (DELF-domain, updated 2026-05-16):
+</p>
+<ul>
+  <li><strong>process_map:</strong> "Varsayılan" | "Faz + sorumlu" | "Risk + atipik"</li>
+  <li><strong>error_cards:</strong> "Varsayılan" | "Halo + önyargı" | "Grille uyumu"</li>
+  <li><strong>glossary:</strong> "Varsayılan" | "Kullanım + hata" | "Beceri + seviye"</li>
+  <li><strong>simulation:</strong> "Varsayılan" | "Puan uyuşmazlığı" | "Sınır seviye"</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 id="frontend">7. Frontend &amp; UX</h2>
+
+<p>Built with <strong>Streamlit</strong>. Launch command: <code>python3 -m streamlit run app.py</code></p>
+
+<table>
+  <tr><th>Tab</th><th>Purpose</th><th>Status</th></tr>
+  <tr><td>Veri Yükleme ve İşleme</td><td>Trigger ingestion, shows chunk count</td><td><span class="badge green">Live</span></td></tr>
+  <tr><td>Süreç Haritası ve Hata Kartları</td><td>Generate process map, error cards, glossary</td><td><span class="badge green">Live</span></td></tr>
+  <tr><td>İnteraktif Simülasyon</td><td>Multiple-choice examiner decision scenarios</td><td><span class="badge green">Live</span></td></tr>
+  <tr><td>Uzman Onay Paneli</td><td>Human expert review and approval of generated content</td><td><span class="badge green">Live</span></td></tr>
+  <tr><td>Prompt Optimizer</td><td>A/B test prompt variants, LLM judge scoring</td><td><span class="badge green">Live, DELF variants</span></td></tr>
+  <tr><td>Veritabanı Gezgini</td><td>Browse all chunks by source/type</td><td><span class="badge orange">Partially broken — groups by legacy <code>source</code> field; DELF chunks use <code>doc_type</code></span></td></tr>
+</table>
+
+<div class="callout warn">
+  <strong>Known cosmetic issues:</strong>
+  (1) DB Explorer tab groups by old <code>source</code> field instead of <code>doc_type</code> — DELF chunks don't appear in the legacy buckets.
+  (2) The app header still says "Tacit-Explicit Entegre Eğitim Sistemi" — the TEE acronym is payroll-era; DELF rebranding of the main title is pending.
+</div>
+
+<!-- ============================================================ -->
+<h2 id="config">8. Key Configuration Parameters (<code>src/config.py</code>, via <code>.env</code>)</h2>
+
+<table>
+  <tr><th>Parameter</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>GENERATION_MODEL</code></td><td>gemini-2.5-flash</td><td>Vertex AI generation model</td></tr>
+  <tr><td><code>EMBEDDING_MODEL</code></td><td>gemini-embedding-001</td><td>Embedding model</td></tr>
+  <tr><td><code>EMBEDDING_DIMENSION</code></td><td>3072</td><td>768 | 1536 | 3072 — changing requires full re-ingestion</td></tr>
+  <tr><td><code>INFERENCE_BACKEND</code></td><td>vertex</td><td><code>vertex</code> (ADC) | <code>public_genai</code> (API key)</td></tr>
+  <tr><td><code>DATA_DIR</code></td><td>new_docs</td><td>Corpus directory relative to project root</td></tr>
+  <tr><td><code>CORPUS_PRIMARY_LANGUAGE</code></td><td>fr</td><td>BM25 tokenizer + stop-word selection</td></tr>
+  <tr><td><code>OUTPUT_LANGUAGE</code></td><td>tr</td><td>Default generator output language</td></tr>
+  <tr><td><code>CHUNKING_STRATEGY</code></td><td>paragraph</td><td>paragraph | semantic | fixed</td></tr>
+  <tr><td><code>HYBRID_ALPHA</code></td><td>0.7</td><td>Dense weight in RRF (1 - alpha = BM25 weight)</td></tr>
+  <tr><td><code>ENABLE_CONTEXTUAL_ENRICHMENT</code></td><td>false</td><td>Per-chunk LLM context prefix at ingest time</td></tr>
+  <tr><td><code>ENABLE_QUERY_REWRITING</code></td><td>false</td><td>Multi-variant query expansion</td></tr>
+  <tr><td><code>MOCK_MODE</code></td><td>false</td><td>When true, all LLM calls return fixed fixtures (for CI/testing)</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="known-gaps">9. Known Gaps &amp; Deferred Work</h2>
+
+<ul>
+  <li><span class="badge orange">High</span> <strong>No formal evaluation:</strong> Gates M3 (top-3 source recall ≥90%) and M4 (citation accuracy ≥95%) have not been measured. The Phase 4 bilingual eval set (<code>evaluation/examiner_questions.json</code>, ~50 grounded Q&amp;A pairs) has not been built.</li>
+  <li><span class="badge orange">High</span> <strong>DB Explorer broken for DELF:</strong> chunks are grouped by <code>source</code> (old field) not <code>doc_type</code>; fix requires updating ~lines 905-951 of <code>app.py</code>.</li>
+  <li><span class="badge">Medium</span> <strong>TR mock fixtures are payroll-domain:</strong> <code>_MOCK_PROCESS_MAP</code> in <code>src/generators.py</code> still contains payroll content. Tests pass because they only check structure, not domain.</li>
+  <li><span class="badge">Medium</span> <strong>Metadata filter query router (Phase 6):</strong> <code>src/metadata_filter.py</code> not yet implemented. Queries like "show me B2 grilles only" cannot filter by <code>level=B2, doc_type=grille</code> before vector search.</li>
+  <li><span class="badge">Medium</span> <strong>Cloud Storage persistence (Phase 7):</strong> ChromaDB is local-disk only. Cloud Run ephemeral filesystem loses the DB on restart. FUSE mount to GCS not yet wired.</li>
+  <tr><td><span class="badge">Low</span> <strong>RAGAS evaluator</strong> (<code>src/evaluator.py</code>) hard-coded to <code>langchain-google-vertexai</code>; breaks under <code>INFERENCE_BACKEND=public_genai</code>.</li>
+  <li><span class="badge">Low</span> <strong>Contextual enrichment disabled:</strong> <code>ENABLE_CONTEXTUAL_ENRICHMENT=false</code> to save cost. Enabling it adds one LLM call per chunk (~4 950 calls) at ingest time, prepending a context summary to each child — a known retrieval quality improvement (Anthropic Contextual Retrieval, 2024).</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 id="rag-trends">10. RAG Trends &amp; Improvement Opportunities</h2>
+
+<p>
+  The following lists current state-of-the-art RAG techniques that are
+  <strong>not yet implemented</strong> in TEE-Model, ordered roughly by
+  expected impact for this specific use case.
+  This section is provided to guide an LLM analyst seeking concrete
+  improvement recommendations.
+</p>
+
+<h3>10.1 Reranking (Cross-Encoder)</h3>
+<p>
+  After the initial hybrid retrieval returns top-k candidates, a <strong>cross-encoder reranker</strong>
+  (e.g., a Gemini call that scores each (query, chunk) pair jointly, or a dedicated model like
+  Cohere Rerank) re-orders them by true relevance. This is one of the highest-ROI retrieval
+  improvements with no corpus changes required. The current system uses RRF fusion but has no
+  reranking step.
+</p>
+<div class="callout">
+  <strong>Implementation hint:</strong> Add a <code>rerank(query, chunks) → chunks</code> step
+  between hybrid search and parent-fetch in <code>src/retrieval.py</code>. Gemini Flash can score
+  10 candidates in a single batch call with structured output.
+</div>
+
+<h3>10.2 Contextual Retrieval (Anthropic, 2024)</h3>
+<p>
+  At ingestion time, prepend a short LLM-generated context summary to each chunk before embedding:
+  <em>"This chunk is from [doc], section [X], and explains [Y in context of the whole document]."</em>
+  This directly addresses the problem of chunks being ambiguous without their document context.
+  TEE-Model has the infrastructure (<code>ENABLE_CONTEXTUAL_ENRICHMENT</code>) but it is disabled.
+  Enabling it requires ~4 950 Gemini calls but only needs to be done once.
+</p>
+
+<h3>10.3 Metadata Pre-Filtering</h3>
+<p>
+  The corpus has rich metadata: <code>level</code> (A1-C1), <code>skill</code> (PE/PO/CE/CO),
+  <code>doc_type</code> (grille/descripteur/sujet/etc.), <code>is_authoritative</code>.
+  Currently none of these are used to pre-filter before vector search. A query about
+  "B2 oral production scoring" could be restricted to <code>level=B2, skill=PO</code> chunks,
+  dramatically improving precision. Phase 6 (<code>src/metadata_filter.py</code>) was planned
+  but not implemented.
+</p>
+
+<h3>10.4 GraphRAG / Knowledge Graph</h3>
+<p>
+  Build a lightweight knowledge graph over DELF concepts: levels ↔ skills ↔ grilles ↔ descriptors.
+  For example: <em>B2 → PO → Grille B2 PO → Critères → Descripteurs</em>.
+  When a user asks about a criterion, graph traversal can surface all related nodes
+  (the grille that contains it, the descriptor that defines it, the exam subject that tests it)
+  rather than relying on semantic proximity alone. Microsoft GraphRAG and LightRAG are
+  open-source implementations of this pattern.
+</p>
+
+<h3>10.5 HyDE — Hypothetical Document Embeddings</h3>
+<p>
+  Before retrieving, ask the LLM to generate a <em>hypothetical ideal answer</em> for the query,
+  then embed that answer and use it for retrieval instead of the raw query.
+  This shifts the query embedding into the document embedding space, reducing the
+  query-document gap especially for procedural questions (<em>"how do I handle a score disagreement?"</em>).
+</p>
+
+<h3>10.6 Adaptive / Agentic RAG</h3>
+<p>
+  Instead of a fixed retrieval-then-generate pipeline, an agentic loop:
+</p>
+<ol>
+  <li>Retrieve initial context</li>
+  <li>Assess whether context is sufficient (self-reflection)</li>
+  <li>If not: formulate a follow-up query, retrieve more, merge</li>
+  <li>Generate when confident</li>
+</ol>
+<p>
+  This is particularly valuable for multi-step questions like
+  <em>"What should I do if a candidate's oral production is off-topic at B2 level?"</em>
+  which requires chaining grille, sujet, and methodologie documents.
+  Self-RAG (Asai et al., 2023) and CRAG (Shi et al., 2024) formalise this pattern.
+</p>
+
+<h3>10.7 Semantic Chunking</h3>
+<p>
+  The current paragraph-based chunking (<code>CHUNKING_STRATEGY=paragraph</code>) splits on
+  paragraph breaks, which can cut mid-criterion in a grille or mid-example in a descripteur.
+  Semantic chunking (split when cosine similarity between consecutive sentence embeddings
+  drops below a threshold) produces chunks with higher internal coherence.
+  The infrastructure exists: <code>CHUNKING_STRATEGY=semantic</code> and
+  <code>SEMANTIC_SIM_THRESHOLD=0.7</code> are already configurable; the strategy just hasn't
+  been benchmarked against paragraph chunking for this corpus.
+</p>
+
+<h3>10.8 RAPTOR — Recursive Hierarchical Summarisation</h3>
+<p>
+  Build a multi-level index: leaf nodes = current child chunks; parent nodes = LLM-generated
+  summaries of clusters of children; root = document-level summary.
+  For the process map generator, a root-level summary of the methodologie documents would give
+  the LLM a high-level protocol overview before diving into specific steps — potentially
+  reducing hallucinated step orderings.
+</p>
+
+<h3>10.9 Multimodal RAG</h3>
+<p>
+  Several corpus files are image-based (WhatsApp JPEGs, scanned PDFs). Currently these are
+  OCR'd to text, losing layout and visual information (scoring tables, diagrams).
+  Gemini's multimodal embedding or vision capabilities could embed image chunks directly,
+  making scoring grid diagrams and annotated copy examples retrievable and citable.
+</p>
+
+<h3>10.10 Evaluation-Driven Iteration Loop</h3>
+<p>
+  The missing Phase 4/5 evaluation set is arguably the most important gap. Without measuring
+  retrieval recall (M3) and citation accuracy (M4), every other improvement is unmeasured.
+  Once the 50-question bilingual eval set exists, the RAGAS framework (already partially
+  wired in <code>src/evaluator.py</code>) can score: <em>faithfulness</em>,
+  <em>answer relevance</em>, <em>context recall</em>, and <em>context precision</em>
+  automatically on every code change — enabling a proper improvement loop.
+</p>
+
+<h3>10.11 Long-Context Window RAG</h3>
+<p>
+  Gemini 2.5 Flash supports a 1 million token context window. For the most important
+  reference documents (the 2 547-chunk Inventaire ONLINE, the 879-chunk CECRL descriptors),
+  it may be viable to pass <em>entire documents</em> as context rather than retrieved chunks,
+  eliminating retrieval errors entirely for factual lookups. The trade-off is latency and cost.
+</p>
+
+<h3>10.12 User Feedback Loop</h3>
+<p>
+  There is no mechanism for examiners to rate generated content (thumbs up/down, flag errors).
+  Collecting feedback would create a fine-tuning dataset and a human preference signal for
+  the Prompt Optimizer's judge — replacing the current LLM-as-judge with real user judgements.
+</p>
+
+<hr />
+
+<h2>Summary Table: Improvement Opportunities by Effort vs. Impact</h2>
+<table>
+  <tr><th>Improvement</th><th>Effort</th><th>Expected Impact</th><th>Dependencies</th></tr>
+  <tr><td>Enable Contextual Enrichment (10.2)</td><td>Low (flag flip + 1 re-ingest)</td><td>High (retrieval precision)</td><td>~$5 Vertex AI cost for 4 950 chunks</td></tr>
+  <tr><td>Metadata Pre-Filtering (10.3)</td><td>Medium (Phase 6 implementation)</td><td>High (precision for level/skill queries)</td><td>Requires query intent classification</td></tr>
+  <tr><td>Build Eval Set + Run RAGAS (10.10)</td><td>Medium (50 Q&amp;A pairs manual effort)</td><td>Critical (enables measuring everything else)</td><td>Domain expert time</td></tr>
+  <tr><td>Cross-Encoder Reranking (10.1)</td><td>Medium (add rerank step in retrieval.py)</td><td>High (top-k precision)</td><td>None</td></tr>
+  <tr><td>Fix DB Explorer (Known Gap)</td><td>Low (update ~10 lines in app.py)</td><td>Medium (UX)</td><td>None</td></tr>
+  <tr><td>HyDE (10.5)</td><td>Low (add pre-retrieval LLM call)</td><td>Medium (procedural query quality)</td><td>None</td></tr>
+  <tr><td>Semantic Chunking Benchmark (10.7)</td><td>Low (config change + re-ingest + eval)</td><td>Medium (chunk coherence)</td><td>Eval set (10.10)</td></tr>
+  <tr><td>User Feedback Loop (10.12)</td><td>Medium (Streamlit UI + storage)</td><td>High (long-term quality signal)</td><td>Deployed users</td></tr>
+  <tr><td>GraphRAG (10.4)</td><td>High (graph schema + ingestion pipeline)</td><td>High (relational queries)</td><td>Graph store (Neo4j or in-memory)</td></tr>
+  <tr><td>Agentic RAG (10.6)</td><td>High (agent loop architecture)</td><td>High (multi-step queries)</td><td>Latency tolerance from users</td></tr>
+  <tr><td>Multimodal RAG (10.9)</td><td>High (vision ingestion pipeline)</td><td>Medium (image-heavy docs)</td><td>Gemini Vision API integration</td></tr>
+  <tr><td>RAPTOR (10.8)</td><td>High (hierarchical index rebuild)</td><td>Medium (navigation queries)</td><td>Full re-ingestion</td></tr>
+  <tr><td>Long-Context Window RAG (10.11)</td><td>Low (bypass retrieval for key docs)</td><td>Medium (factual accuracy)</td><td>High latency/cost per call</td></tr>
+</table>
+
+<hr />
+<p style="color:var(--muted); font-size:.82rem; text-align:center;">
+  TEE-Model · feature/delf-corpus-migration · Generated 2026-05-16 ·
+  Project: woven-operative-491610-u6 · Vertex AI us-central1
+</p>
+
+</body>
+</html>
