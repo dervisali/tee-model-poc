@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import json
 import logging
+import hashlib
+import time
 from pathlib import Path
 from typing import Literal
 
@@ -171,9 +173,9 @@ _GENERATOR_PROMPTS: dict[str, dict[OutputLanguage, dict[str, str]]] = {
 # retrieval path in generate_process_map to ensure all phases are represented.
 _PROCESS_MAP_PHASE_QUERIES: dict[OutputLanguage, list[str]] = {
     "tr": [
-        "sınavcı-düzeltici habilitasyon hazırlık referans manüeli oturum öncesi",
-        "bireysel düzeltme notlandırma grille kriterleri adayın üretimini değerlendirme",
-        "çift düzeltme skoru karşılaştırma delibération uzlaşma atipik kopya finalizasyon",
+        "habilitation examinateur-correcteur préparation référentiel session convocation",
+        "correction individuelle notation grille critères évaluation production candidat",
+        "double correction comparaison délibération copie atypique finalisation résultats",
     ],
     "fr": [
         "habilitation examinateur-correcteur préparation référentiel session convocation",
@@ -250,6 +252,7 @@ class SimulationSchema(BaseModel):
 
 _MIN_CONTEXT_CHUNKS = 2
 _OPTIMIZED_PROMPTS_PATH = settings.BASE_DIR / "optimized_prompts.json"
+_PROCESS_MAP_CACHE_PATH = settings.CHROMA_DIR / "process_map_cache.json"
 
 
 def _load_optimized_prompt(generator_key: str) -> dict | None:
@@ -261,6 +264,97 @@ def _load_optimized_prompt(generator_key: str) -> dict | None:
         return data.get(generator_key)
     except Exception:
         return None
+
+
+def _hash_text(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _hash_file(path: Path) -> str:
+    if not path.exists():
+        return "missing"
+    digest = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _load_json_file(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        logger.warning("JSON cache okunamadı (%s): %s", path, exc)
+        return {}
+
+
+def _write_json_file(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(path)
+
+
+def _process_map_cache_key(lang: OutputLanguage, prompts: dict[str, str]) -> str:
+    corpus_path = settings.CHROMA_DIR / "parents.json"
+    bm25_path = settings.CHROMA_DIR / "bm25_index.pkl"
+    fingerprint = {
+        "lang": lang,
+        "generation_model": settings.GENERATION_MODEL,
+        "embedding_model": settings.EMBEDDING_MODEL,
+        "embedding_dimension": settings.EMBEDDING_DIMENSION,
+        "corpus_primary_language": settings.CORPUS_PRIMARY_LANGUAGE,
+        "child_collection": settings.CHILD_COLLECTION_NAME,
+        "enable_hybrid_search": settings.ENABLE_HYBRID_SEARCH,
+        "enable_confidence_scoring": settings.ENABLE_CONFIDENCE_SCORING,
+        "hybrid_rrf_k": settings.HYBRID_RRF_K,
+        "parents_hash": _hash_file(corpus_path),
+        "bm25_hash": _hash_file(bm25_path),
+        "phase_queries": _PROCESS_MAP_PHASE_QUERIES["fr"],
+        "instruction": prompts["instruction"],
+        "grounding_template": _GROUNDING_TEMPLATES[lang],
+        "schema": ProcessMapSchema.model_json_schema(),
+    }
+    return _hash_text(json.dumps(fingerprint, ensure_ascii=False, sort_keys=True, default=str))
+
+
+def _read_process_map_cache(cache_key: str) -> dict | None:
+    cache = _load_json_file(_PROCESS_MAP_CACHE_PATH)
+    entry = cache.get(cache_key)
+    if not isinstance(entry, dict):
+        return None
+    result = entry.get("result")
+    if not isinstance(result, dict):
+        return None
+    logger.info(
+        "Process map cache hit",
+        extra={
+            "event": "process_map_cache_hit",
+            "cache_key": cache_key[:12],
+            "created_at": entry.get("created_at"),
+        },
+    )
+    return result
+
+
+def _write_process_map_cache(cache_key: str, result: dict) -> None:
+    cache = _load_json_file(_PROCESS_MAP_CACHE_PATH)
+    cache[cache_key] = {
+        "created_at": int(time.time()),
+        "result": result,
+    }
+    # Keep the cache tiny; old entries are only useful across recent prompt/corpus edits.
+    if len(cache) > 12:
+        cache = dict(
+            sorted(
+                cache.items(),
+                key=lambda item: item[1].get("created_at", 0) if isinstance(item[1], dict) else 0,
+                reverse=True,
+            )[:12]
+        )
+    _write_json_file(_PROCESS_MAP_CACHE_PATH, cache)
 
 
 def _build_grounded_prompt(
@@ -681,7 +775,46 @@ def _structured_generate(
 # Üreticiler
 # ---------------------------------------------------------------------------
 
-def generate_process_map(language: OutputLanguage | None = None) -> dict:
+def score_process_map_confidence(
+    process_map: dict,
+    source_chunks: list[dict],
+    cache_key: str | None = None,
+) -> dict:
+    """Score an already-generated process map and persist the scored cache entry."""
+    result = dict(process_map)
+    result.pop("_confidence_status", None)
+    result.pop("_confidence_error", None)
+    try:
+        from src.confidence import score_generated_content
+
+        confidence_started = time.perf_counter()
+        result["_confidence"] = score_generated_content(result, source_chunks, "process_map")
+        logger.info(
+            "Process map confidence scoring tamamlandı",
+            extra={
+                "event": "process_map_confidence_complete",
+                "duration_ms": round((time.perf_counter() - confidence_started) * 1000, 1),
+            },
+        )
+    except Exception as exc:
+        logger.warning("Confidence skorlaması atlandı: %s", exc)
+        result["_confidence_status"] = "error"
+        result["_confidence_error"] = str(exc)
+
+    if cache_key:
+        _write_process_map_cache(cache_key, result)
+        logger.info(
+            "Process map cache yazıldı",
+            extra={"event": "process_map_cache_write", "cache_key": cache_key[:12]},
+        )
+    return result
+
+
+def generate_process_map(
+    language: OutputLanguage | None = None,
+    *,
+    defer_confidence: bool = False,
+) -> dict:
     """DELF değerlendirme süreci haritasını grounded biçimde üretir.
 
     Üç fazlı retrieval stratejisi: her faz için ayrı bir sorgu çalıştırılır
@@ -695,17 +828,42 @@ def generate_process_map(language: OutputLanguage | None = None) -> dict:
         return {**_mock_fixture("process_map", lang), "_confidence": _MOCK_CONFIDENCE_HIGH}
 
     prompts = _get_prompts("process_map", lang)
+    cache_key = _process_map_cache_key(lang, prompts)
+    cached = _read_process_map_cache(cache_key)
+    if cached is not None:
+        return cached
+
     try:
         # --- multi-phase retrieval ---
+        started = time.perf_counter()
         phase_queries = _PROCESS_MAP_PHASE_QUERIES[lang]
         seen: dict[str, dict] = {}
         for q in phase_queries:
+            phase_started = time.perf_counter()
+            phase_count = 0
             for chunk in retrieve_context(q, top_k=8):
+                phase_count += 1
                 pid = chunk["parent_id"]
                 if pid not in seen or chunk.get("score", 0) > seen[pid].get("score", 0):
                     seen[pid] = chunk
+            logger.info(
+                "Process map phase retrieval tamamlandı",
+                extra={
+                    "event": "process_map_phase_retrieval_complete",
+                    "query": q,
+                    "results": phase_count,
+                    "duration_ms": round((time.perf_counter() - phase_started) * 1000, 1),
+                },
+            )
         merged = sorted(seen.values(), key=lambda c: c.get("score", 0), reverse=True)[:20]
-        logger.info("Multi-phase retrieval: %d unique parent chunks", len(merged))
+        logger.info(
+            "Multi-phase retrieval tamamlandı",
+            extra={
+                "event": "process_map_multi_phase_retrieval_complete",
+                "unique_parent_chunks": len(merged),
+                "duration_ms": round((time.perf_counter() - started) * 1000, 1),
+            },
+        )
 
         context_text, chunk_indices = build_context_text(merged)
         template = _GROUNDING_TEMPLATES.get(lang, _GROUNDING_TEMPLATES["tr"])
@@ -723,12 +881,24 @@ def generate_process_map(language: OutputLanguage | None = None) -> dict:
             return {"hata": str(exc), "ham_cikti": raw}
 
         if settings.ENABLE_CONFIDENCE_SCORING:
-            from src.confidence import score_generated_content
-            try:
-                result["_confidence"] = score_generated_content(result, merged, "process_map")
-            except Exception as exc:
-                logger.warning("Confidence skorlaması atlandı: %s", exc)
+            if defer_confidence:
+                result["_confidence_status"] = "pending"
+                result["_confidence_source_chunks"] = merged
+                result["_process_map_cache_key"] = cache_key
+                logger.info(
+                    "Process map confidence scoring ertelendi",
+                    extra={"event": "process_map_confidence_deferred", "cache_key": cache_key[:12]},
+                )
+                return result
 
+            result = score_process_map_confidence(result, merged, cache_key)
+            return result
+
+        _write_process_map_cache(cache_key, result)
+        logger.info(
+            "Process map cache yazıldı",
+            extra={"event": "process_map_cache_write", "cache_key": cache_key[:12]},
+        )
         return result
     except Exception as exc:
         logger.error("process_map üretim hatası: %s", exc)

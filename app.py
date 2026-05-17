@@ -11,6 +11,7 @@ import sys
 import logging
 
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 
 # Ensure src/ is importable when run from project root
@@ -18,7 +19,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from src.config import settings  # noqa: E402
 from src.logging_config import configure_logging  # noqa: E402
-from src.job_queue import submit_job, wait_for_job, queue_size  # noqa: E402
+from src.job_queue import submit_job, wait_for_job, queue_size, get_status  # noqa: E402
 from src.chatbot import chat_stream, MAX_TURNS, validate_citations  # noqa: E402
 
 configure_logging()
@@ -112,6 +113,7 @@ st.markdown(
     .confidence-banner.green  { background: #d4edda; border-left: 5px solid #27ae60; color: #155724; }
     .confidence-banner.yellow { background: #fff3cd; border-left: 5px solid #f1c40f; color: #856404; }
     .confidence-banner.red    { background: #f8d7da; border-left: 5px solid #e74c3c; color: #721c24; }
+    .confidence-banner.pending { background: #eef2f7; border-left: 5px solid #7f8c8d; color: #2c3e50; }
     .confidence-meta { font-size: 0.82rem; opacity: 0.85; }
     </style>
     """,
@@ -121,6 +123,28 @@ st.markdown(
 
 def _render_confidence_banner(content: dict) -> None:
     """Üretilen içerikteki _confidence rozetini Tab 4'te render eder."""
+    if content.get("_confidence_status") == "pending":
+        st.markdown(
+            """<div class="confidence-banner pending">
+            <b>🛡️ Güven Skoru Hesaplanıyor</b> &nbsp;·&nbsp;
+            İçerik görüntülenebilir; kaynak destek kontrolü arka planda devam ediyor.
+            <span class="confidence-meta"> &nbsp;|&nbsp; Uzman onayı öncesi rozetin tamamlanmasını bekleyin.</span>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+        return
+
+    if content.get("_confidence_status") == "error":
+        st.markdown(
+            f"""<div class="confidence-banner yellow">
+            <b>🛡️ Güven Skoru Tamamlanamadı</b> &nbsp;·&nbsp;
+            Manuel inceleme önerilir.
+            <span class="confidence-meta"> &nbsp;|&nbsp; Hata: <b>{content.get('_confidence_error', 'bilinmiyor')}</b></span>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+        return
+
     score = content.get("_confidence") if isinstance(content, dict) else None
     if not score or score.get("hata"):
         return
@@ -161,6 +185,65 @@ def _render_confidence_banner(content: dict) -> None:
         unsafe_allow_html=True,
     )
 
+
+def _strip_process_map_confidence_payload(result: dict) -> tuple[dict, list[dict], str | None]:
+    """Remove bulky private confidence payload before storing in session state."""
+    clean = dict(result)
+    chunks = clean.pop("_confidence_source_chunks", [])
+    cache_key = clean.pop("_process_map_cache_key", None)
+    return clean, chunks, cache_key
+
+
+def _start_process_map_confidence_job(result: dict) -> dict:
+    """Queue deferred confidence scoring for a process map result."""
+    clean, chunks, cache_key = _strip_process_map_confidence_payload(result)
+    if clean.get("_confidence_status") != "pending" or not chunks:
+        return clean
+
+    from src.generators import score_process_map_confidence
+
+    job_id = submit_job(score_process_map_confidence, clean, chunks, cache_key)
+    clean["_confidence_job_id"] = job_id
+    st.session_state["process_map_confidence_job_id"] = job_id
+    logger.info(
+        "Process map confidence job kuyruğa alındı",
+        extra={"event": "process_map_confidence_job_queued", "job_id": job_id},
+    )
+    return clean
+
+
+def _poll_process_map_confidence_job() -> None:
+    """Patch process-map confidence into session state when the background job finishes."""
+    job_id = st.session_state.get("process_map_confidence_job_id")
+    pm = st.session_state.get("process_map")
+    if not job_id or not isinstance(pm, dict):
+        return
+
+    status = get_status(job_id)
+    if status["status"] == "done" and isinstance(status.get("result"), dict):
+        scored = dict(status["result"])
+        scored.pop("_confidence_job_id", None)
+        st.session_state["process_map"] = scored
+        st.session_state["process_map_confidence_job_id"] = None
+        st.rerun()
+    if status["status"] == "error":
+        pm["_confidence_status"] = "error"
+        pm["_confidence_error"] = status.get("error") or "bilinmeyen hata"
+        st.session_state["process_map_confidence_job_id"] = None
+        st.rerun()
+
+
+def _schedule_confidence_autorefresh() -> None:
+    """Ask the browser to refresh while deferred confidence scoring is pending."""
+    components.html(
+        """
+        <script>
+        setTimeout(() => window.parent.location.reload(), 3000);
+        </script>
+        """,
+        height=0,
+    )
+
 # ---------------------------------------------------------------------------
 # Session state initialisation
 # ---------------------------------------------------------------------------
@@ -169,6 +252,7 @@ _DEFAULTS = {
     "ingestion_summary": None,
     "mask_log": None,
     "process_map": None,
+    "process_map_confidence_job_id": None,
     "error_cards": None,
     "glossary": None,
     "simulation": None,
@@ -345,6 +429,7 @@ with tabs[0]:
 
 with tabs[1]:
     st.subheader("Süreç Haritası, Hata Kartları ve Terim Sözlüğü")
+    _poll_process_map_confidence_job()
 
     # --- Process Map ---
     st.markdown("#### 🗺️ Süreç Haritası")
@@ -358,11 +443,12 @@ with tabs[1]:
         result, error = _run_via_queue(
             "Süreç haritası oluşturuluyor", generate_process_map,
             language=st.session_state.get("output_language", "tr"),
+            defer_confidence=True,
         )
         if error:
             st.error(f"Hata: {error}")
         else:
-            st.session_state["process_map"] = result
+            st.session_state["process_map"] = _start_process_map_confidence_job(result)
             st.session_state["approvals"]["process_map"] = {}
 
     pm = st.session_state.get("process_map")
@@ -373,12 +459,15 @@ with tabs[1]:
                 with st.expander("Ham Çıktı"):
                     st.text(pm["ham_çıktı"])
         else:
+            _render_confidence_banner(pm)
             steps = pm.get("steps", [])
             if steps:
                 df_pm = pd.DataFrame(steps)
                 st.dataframe(df_pm, use_container_width=True, hide_index=True)
             else:
                 st.warning("Adım bulunamadı.")
+            if pm.get("_confidence_status") == "pending":
+                _schedule_confidence_autorefresh()
 
     st.markdown("---")
 

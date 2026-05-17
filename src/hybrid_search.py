@@ -26,6 +26,7 @@ from __future__ import annotations
 import logging
 import pickle
 import re
+import time
 import unicodedata
 from functools import lru_cache
 from pathlib import Path
@@ -40,6 +41,15 @@ logger = logging.getLogger(__name__)
 
 
 BM25_INDEX_PATH = settings.CHROMA_DIR / "bm25_index.pkl"
+
+
+def _file_cache_key(path: Path) -> tuple[int, int]:
+    """Cheap freshness key for file-backed caches."""
+    try:
+        stat = path.stat()
+    except FileNotFoundError:
+        return (0, 0)
+    return (stat.st_mtime_ns, stat.st_size)
 
 
 # ---------------------------------------------------------------------------
@@ -211,7 +221,13 @@ class BM25Index:
         logger.info("BM25 indeksi kaydedildi: %s (n=%d)", path, len(self.ids))
 
     @classmethod
-    def load(cls, path: Path = BM25_INDEX_PATH) -> "BM25Index | None":
+    @lru_cache(maxsize=1)
+    def load(
+        cls,
+        path: Path = BM25_INDEX_PATH,
+        cache_key: tuple[int, int] | None = None,
+    ) -> "BM25Index | None":
+        _ = cache_key
         if not path.exists():
             return None
         try:
@@ -264,6 +280,10 @@ def rebuild_bm25_index_from_collection(language: str | None = None) -> BM25Index
 
     index = BM25Index(ids=ids, tokens=tokens, documents=documents, metadatas=metadatas)
     index.save()
+    try:
+        BM25Index.load.cache_clear()
+    except AttributeError:
+        BM25Index.load.__func__.cache_clear()
     logger.info("BM25 indeksi inşa edildi: %d child, language=%s.", len(ids), active_language)
     return index
 
@@ -279,6 +299,7 @@ def _dense_search_children(
 ) -> list[tuple[str, float, str, dict]]:
     """ChromaDB üzerinden dense sıralama; (id, distance, doc, meta) listesi döner."""
     import chromadb
+    started = time.perf_counter()
     client = chromadb.PersistentClient(path=str(settings.CHROMA_DIR))
     col = client.get_or_create_collection(
         name=settings.CHILD_COLLECTION_NAME,
@@ -287,7 +308,9 @@ def _dense_search_children(
     if col.count() == 0:
         return []
 
+    embed_started = time.perf_counter()
     qvec = embed_query(query)
+    embed_ms = (time.perf_counter() - embed_started) * 1000
     where = {"source": source_filter} if source_filter else None
     kwargs = {
         "query_embeddings": [qvec],
@@ -297,13 +320,27 @@ def _dense_search_children(
     if where:
         kwargs["where"] = where
 
+    chroma_started = time.perf_counter()
     results = col.query(**kwargs)
+    chroma_ms = (time.perf_counter() - chroma_started) * 1000
     ids = results.get("ids", [[]])[0]
     docs = results.get("documents", [[]])[0]
     metas = results.get("metadatas", [[]])[0]
     dists = results.get("distances", [[]])[0]
 
-    return [(i, float(d), doc, meta) for i, d, doc, meta in zip(ids, dists, docs, metas)]
+    output = [(i, float(d), doc, meta) for i, d, doc, meta in zip(ids, dists, docs, metas)]
+    logger.info(
+        "Dense child search tamamlandı",
+        extra={
+            "event": "dense_child_search_complete",
+            "top_k": top_k,
+            "results": len(output),
+            "duration_ms": round((time.perf_counter() - started) * 1000, 1),
+            "embedding_ms": round(embed_ms, 1),
+            "chroma_query_ms": round(chroma_ms, 1),
+        },
+    )
+    return output
 
 
 # ---------------------------------------------------------------------------
@@ -368,19 +405,28 @@ def hybrid_search_children(
 
     dense_results = []
     bm25_results: list[tuple[str, float, str, dict]] = []
+    dense_ms = 0.0
+    bm25_load_ms = 0.0
+    bm25_search_ms = 0.0
 
     if search_mode in ("dense", "hybrid"):
+        dense_started = time.perf_counter()
         dense_results = _dense_search_children(query, fetch_k, source_filter)
+        dense_ms = (time.perf_counter() - dense_started) * 1000
 
     if search_mode in ("sparse", "hybrid"):
-        bm25_index = BM25Index.load()
+        bm25_load_started = time.perf_counter()
+        bm25_index = BM25Index.load(cache_key=_file_cache_key(BM25_INDEX_PATH))
+        bm25_load_ms = (time.perf_counter() - bm25_load_started) * 1000
         if bm25_index is None:
             logger.warning("BM25 indeksi yok; sparse atlanıyor. Ingestion'ı yeniden çalıştırın.")
         else:
+            bm25_search_started = time.perf_counter()
             bm25_results = bm25_index.search(sparse_query, fetch_k, source_filter=source_filter)
+            bm25_search_ms = (time.perf_counter() - bm25_search_started) * 1000
 
     if search_mode == "dense":
-        return [
+        output = [
             {
                 "id": cid,
                 "document": doc,
@@ -391,9 +437,22 @@ def hybrid_search_children(
             }
             for cid, dist, doc, meta in dense_results[:top_k]
         ]
+        logger.info(
+            "Hibrit arama tamamlandı",
+            extra={
+                "event": "hybrid_search_complete",
+                "search_mode": search_mode,
+                "alpha": alpha,
+                "dense_n": len(dense_results),
+                "sparse_n": 0,
+                "fused_n": len(output),
+                "dense_ms": round(dense_ms, 1),
+            },
+        )
+        return output
 
     if search_mode == "sparse":
-        return [
+        output = [
             {
                 "id": cid,
                 "document": doc,
@@ -404,6 +463,20 @@ def hybrid_search_children(
             }
             for cid, score, doc, meta in bm25_results[:top_k]
         ]
+        logger.info(
+            "Hibrit arama tamamlandı",
+            extra={
+                "event": "hybrid_search_complete",
+                "search_mode": search_mode,
+                "alpha": alpha,
+                "dense_n": 0,
+                "sparse_n": len(bm25_results),
+                "fused_n": len(output),
+                "bm25_load_ms": round(bm25_load_ms, 1),
+                "bm25_search_ms": round(bm25_search_ms, 1),
+            },
+        )
+        return output
 
     # --- hybrid füzyon ----------------------------------------------------
 
@@ -451,6 +524,9 @@ def hybrid_search_children(
             "dense_n": len(dense_results),
             "sparse_n": len(bm25_results),
             "fused_n": len(output),
+            "dense_ms": round(dense_ms, 1),
+            "bm25_load_ms": round(bm25_load_ms, 1),
+            "bm25_search_ms": round(bm25_search_ms, 1),
         },
     )
     return output

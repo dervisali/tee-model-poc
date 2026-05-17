@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import json
 import logging
+import time
+from functools import lru_cache
 from pathlib import Path
 
 import chromadb
@@ -47,11 +49,35 @@ def _get_chroma_collection() -> chromadb.Collection:
     )
 
 
-def _load_parents() -> dict:
+def _file_cache_key(path: Path) -> tuple[int, int]:
+    """
+    Return a cheap freshness key for file-backed in-memory caches.
+
+    Re-ingestion replaces parents.json; including mtime and size lets the
+    running Streamlit process see fresh data without a manual restart.
+    """
+    try:
+        stat = path.stat()
+    except FileNotFoundError:
+        return (0, 0)
+    return (stat.st_mtime_ns, stat.st_size)
+
+
+@lru_cache(maxsize=1)
+def _load_parents(cache_key: tuple[int, int] | None = None) -> dict:
     """parents.json dosyasını yükler."""
+    _ = cache_key
     if PARENTS_JSON.exists():
         return json.loads(PARENTS_JSON.read_text(encoding="utf-8"))
     return {}
+
+
+def _load_current_parents() -> dict:
+    """Load parents with freshness-aware cache, keeping old monkey-patches compatible."""
+    try:
+        return _load_parents(_file_cache_key(PARENTS_JSON))
+    except TypeError:
+        return _load_parents()
 
 
 def _embed_query(query: str) -> list[float]:
@@ -91,7 +117,9 @@ def retrieve_context(
     if search_mode is None:
         search_mode = "hybrid" if settings.ENABLE_HYBRID_SEARCH else "dense"
 
-    parents = _load_parents()
+    started = time.perf_counter()
+    parents = _load_current_parents()
+    parents_ms = (time.perf_counter() - started) * 1000
     if not parents:
         raise ValueError(
             "parents.json bulunamadı. Lütfen ingestion adımını tekrar çalıştırın."
@@ -103,11 +131,14 @@ def retrieve_context(
     # Phase 3.5: cross-lingual sorgu genişletme — yalnızca BM25 yolunu etkiler.
     # Dense yol orijinal sorgu üzerinden gider (multilingual embedding).
     bm25_query: str | None = None
+    translation_ms = 0.0
     if settings.QUERY_LANGUAGE_AUTO_DETECT and search_mode in ("sparse", "hybrid"):
         from src.query_translator import detect_query_language, translate_query
         query_lang = detect_query_language(query)
         if query_lang != settings.CORPUS_PRIMARY_LANGUAGE:
+            translation_started = time.perf_counter()
             bm25_query = translate_query(query, target_language=settings.CORPUS_PRIMARY_LANGUAGE)
+            translation_ms = (time.perf_counter() - translation_started) * 1000
             logger.info(
                 "Cross-lingual BM25",
                 extra={
@@ -121,6 +152,7 @@ def retrieve_context(
     # Hibrit veya sparse — child seviyesinde arama, sonra parent_id'ye göre dedup
     from src.hybrid_search import hybrid_search_children  # geç import (döngüsel sorun yok)
 
+    search_started = time.perf_counter()
     children = hybrid_search_children(
         query,
         top_k=top_k,
@@ -129,9 +161,11 @@ def retrieve_context(
         alpha=alpha,
         bm25_query=bm25_query,
     )
+    child_search_ms = (time.perf_counter() - search_started) * 1000
     if not children:
         raise ValueError("Sorgu için hiçbir sonuç döndürülmedi.")
 
+    format_started = time.perf_counter()
     seen_parents: dict[str, dict] = {}
     for child in children:
         meta = child["metadata"]
@@ -174,6 +208,8 @@ def retrieve_context(
             "bm25_score": item["bm25_score"],
             "search_mode": search_mode,
         })
+    format_ms = (time.perf_counter() - format_started) * 1000
+    total_ms = (time.perf_counter() - started) * 1000
 
     logger.info(
         "Hibrit retrieval tamamlandı",
@@ -184,6 +220,11 @@ def retrieve_context(
             "results": len(formatted),
             "search_mode": search_mode,
             "top_score": formatted[0]["score"] if formatted else None,
+            "duration_ms": round(total_ms, 1),
+            "parents_load_ms": round(parents_ms, 1),
+            "translation_ms": round(translation_ms, 1),
+            "child_search_ms": round(child_search_ms, 1),
+            "parent_format_ms": round(format_ms, 1),
         },
     )
     return formatted
@@ -199,13 +240,16 @@ def _retrieve_dense(
     """Eski yoğun-yalnız retrieval mantığı; geriye uyumluluk için korunur."""
     threshold = distance_threshold if distance_threshold is not None else settings.RETRIEVAL_DISTANCE_THRESHOLD
 
+    started = time.perf_counter()
     collection = _get_chroma_collection()
     if collection.count() == 0:
         raise ValueError(
             "Vektör veritabanı boş. Lütfen önce 'Veritabanını Yenile' adımını çalıştırın."
         )
 
+    embed_started = time.perf_counter()
     query_vector = _embed_query(query)
+    embed_ms = (time.perf_counter() - embed_started) * 1000
     where_clause = {"source": source_filter} if source_filter else None
     query_kwargs: dict = {
         "query_embeddings": [query_vector],
@@ -216,7 +260,9 @@ def _retrieve_dense(
         query_kwargs["where"] = where_clause
 
     try:
+        chroma_started = time.perf_counter()
         results = collection.query(**query_kwargs)
+        chroma_ms = (time.perf_counter() - chroma_started) * 1000
     except Exception as exc:
         raise RuntimeError(f"ChromaDB sorgu hatası: {exc}") from exc
 
@@ -261,6 +307,7 @@ def _retrieve_dense(
             "distance": item["distance"],
             "search_mode": "dense",
         })
+    total_ms = (time.perf_counter() - started) * 1000
 
     logger.info(
         "Dense retrieval tamamlandı",
@@ -271,6 +318,9 @@ def _retrieve_dense(
             "results": len(formatted),
             "search_mode": "dense",
             "top_distance": formatted[0]["distance"] if formatted else None,
+            "duration_ms": round(total_ms, 1),
+            "embedding_ms": round(embed_ms, 1),
+            "chroma_query_ms": round(chroma_ms, 1),
         },
     )
     return formatted
@@ -300,7 +350,7 @@ def lookup_parent_context(parent_id: str) -> dict | None:
     Verilen parent_id için parent metnini ve onun child'larını döndürür.
     Uzman onay paneli, kaynak alıntılarını göstermek için kullanır.
     """
-    parents = _load_parents()
+    parents = _load_current_parents()
     if parent_id not in parents:
         return None
     parent_data = parents[parent_id]
