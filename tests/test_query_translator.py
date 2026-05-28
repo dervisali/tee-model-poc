@@ -111,6 +111,11 @@ class TestRetrieveContextCrossLingual:
         # Auto-detect must be on, corpus must be fr (default).
         assert settings.QUERY_LANGUAGE_AUTO_DETECT is True
         assert settings.CORPUS_PRIMARY_LANGUAGE == "fr"
+        # Cross-lingual BM25'in çeviri yolunu test ediyoruz — bayrağı açıkça aç.
+        # NOT: retrieval_mod.settings üzerinden patch'liyoruz; bazı testler
+        # src.config'i reload edip yeni bir settings nesnesi yaratıyor, retrieval
+        # ise import anındaki referansı tutuyor. Doğru nesneyi patch'lemek şart.
+        monkeypatch.setattr(retrieval_mod.settings, "ENABLE_CROSS_LINGUAL_BM25", True)
 
         out = retrieval_mod.retrieve_context(
             "B2 yazılı üretim kohezyon kriteri",
@@ -127,3 +132,62 @@ class TestRetrieveContextCrossLingual:
         translated = captured["bm25_query_future"].result()
         assert translated.startswith("[MOCK-FR]")
         assert len(out) == 1
+
+    @pytest.mark.requires_chromadb
+    def test_tr_query_dense_fallback_when_cross_lingual_bm25_off(self, monkeypatch):
+        """
+        Veri-temelli varsayılan: ENABLE_CROSS_LINGUAL_BM25 kapalıyken (varsayılan)
+        Türkçe sorgu hibrit yerine dense-only'ye düşürülür — çeviri/BM25 atlanır.
+        hybrid_search_children HİÇ çağrılmamalı; _retrieve_dense çağrılmalı.
+        """
+        from src import retrieval as retrieval_mod
+        from src.config import settings
+        import src.hybrid_search as hs_mod
+
+        assert settings.ENABLE_CROSS_LINGUAL_BM25 is False  # varsayılan
+        assert settings.QUERY_LANGUAGE_AUTO_DETECT is True
+
+        called = {"hybrid": False, "dense": False}
+
+        def fake_hybrid(*a, **k):
+            called["hybrid"] = True
+            return []
+
+        def fake_dense(query, top_k, source_filter, distance_threshold, parents, metadata_filter=None):
+            called["dense"] = True
+            return [{"parent_id": "x", "filename": "f.pdf", "parent_text": "t",
+                     "text": "t", "score": 0.9, "search_mode": "dense"}]
+
+        monkeypatch.setattr(retrieval_mod, "_load_parents", lambda: {"x": {"text": "t"}})
+        monkeypatch.setattr(hs_mod, "hybrid_search_children", fake_hybrid)
+        monkeypatch.setattr(retrieval_mod, "_retrieve_dense", fake_dense)
+
+        retrieval_mod.retrieve_context("B2 yazılı üretim kohezyon kriteri", top_k=1, search_mode="hybrid")
+
+        assert called["dense"] is True
+        assert called["hybrid"] is False  # cross-lingual BM25 atlandı
+
+    @pytest.mark.requires_chromadb
+    def test_fr_query_stays_hybrid(self, monkeypatch):
+        """Aynı-dil (FR) sorgu hibrit kalır — BM25 leksikal eşleşme orada değerli."""
+        from src import retrieval as retrieval_mod
+        from src.config import settings
+        import src.hybrid_search as hs_mod
+
+        called = {"hybrid": False}
+
+        def fake_hybrid(query, *, top_k, source_filter, search_mode, alpha,
+                        bm25_query=None, bm25_query_future=None, **kwargs):
+            called["hybrid"] = True
+            # FR sorgu: çeviri yok → future None, bm25 orijinal sorguyu kullanır
+            assert bm25_query_future is None
+            return [{"id": "x_c0", "document": "d",
+                     "metadata": {"parent_id": "x", "child_index": 0,
+                                  "source": "fake", "filename": "f.pdf"},
+                     "score": 0.9, "dense_distance": 0.1, "bm25_score": 1.5}]
+
+        monkeypatch.setattr(retrieval_mod, "_load_parents", lambda: {"x": {"text": "FR text"}})
+        monkeypatch.setattr(hs_mod, "hybrid_search_children", fake_hybrid)
+
+        retrieval_mod.retrieve_context("grille évaluation production orale", top_k=1, search_mode="hybrid")
+        assert called["hybrid"] is True

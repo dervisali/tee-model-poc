@@ -57,7 +57,8 @@ python -m src.ingestion
 
 ```
 User query
-  → detect language → translate query (TR→FR, BM25 path only)
+  → detect language → cross-lingual (TR) queries use dense-only by default
+       (ENABLE_CROSS_LINGUAL_BM25=true restores TR→FR translation + BM25)
   → dense retrieval (gemini-embedding-001, ChromaDB tee_children)
   → BM25 retrieval (bm25_index.pkl)
   → RRF fusion (HYBRID_ALPHA=0.7 dense, 0.3 BM25, k=60)
@@ -97,6 +98,7 @@ User query
 | `ENABLE_CONFIDENCE_SCORING` | `true` | — | Active; second LLM pass per generation |
 | `ENABLE_QUERY_REWRITING` | `false` | — | Off — slow, 3× LLM calls at retrieval time |
 | `ENABLE_RERANKING` | `false` | — | Off — LLM-as-reranker adds 1 LLM call (latency/cost). On = over-fetch `RERANK_FETCH_K` (20) candidates → rerank to top_k. Quality win, not speed. |
+| `ENABLE_CROSS_LINGUAL_BM25` | `false` | — | Off — cross-lingual (TR query → FR corpus) queries fall back to dense-only. Retrieval eval showed BM25+translation gives **no** recall/MRR gain on TR queries but costs a ~0.6–1.1s translation LLM call. Same-language (FR) queries stay hybrid (BM25 helps ranking there). On = restore TR→FR translation + hybrid. |
 | `MOCK_MODE` | `false` | — | Off; set to `true` for UI testing without API |
 
 ## Known Issues
@@ -139,6 +141,7 @@ All in `src/config.py`. Key ones for `.env`:
 | `EMBEDDING_DIMENSION` | `3072` | Changing this requires full re-ingestion |
 | `CORPUS_PRIMARY_LANGUAGE` | `fr` | Controls BM25 tokenizer + stop-words |
 | `OUTPUT_LANGUAGE` | `tr` | Default generation output language |
+| `ENABLE_CROSS_LINGUAL_BM25` | `false` | `true` = translate TR→FR for BM25 (hybrid); default off → cross-lingual queries use dense-only |
 | `ENABLE_RERANKING` | `false` | `true` = LLM reranks top candidates after fusion |
 | `RERANK_FETCH_K` | `20` | Candidates over-fetched for the reranker before slicing to top_k |
 | `RERANK_MODEL` | `None` | Reranker model; `None` reuses `GENERATION_MODEL` |

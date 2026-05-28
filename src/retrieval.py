@@ -126,6 +126,28 @@ def retrieve_context(
     if search_mode is None:
         search_mode = "hybrid" if settings.ENABLE_HYBRID_SEARCH else "dense"
 
+    # Veri-temelli karar (BM25 değerlendirmesi): cross-lingual sorgularda
+    # (sorgu dili != korpus dili) BM25+çeviri yolu recall/MRR'a katkı sağlamıyor
+    # ama çeviri LLM çağrısı ~0.6-1.1 sn gecikme ekliyor. Bu nedenle ENABLE_CROSS_LINGUAL_BM25
+    # kapalıyken (varsayılan) cross-lingual sorgular dense-only'ye düşürülür.
+    # Aynı-dil sorgular hibrit kalır (BM25 leksikal eşleşme orada sıralamayı iyileştirir).
+    if (
+        search_mode == "hybrid"
+        and settings.QUERY_LANGUAGE_AUTO_DETECT
+        and not settings.ENABLE_CROSS_LINGUAL_BM25
+    ):
+        from src.query_translator import detect_query_language
+        if detect_query_language(query) != settings.CORPUS_PRIMARY_LANGUAGE:
+            logger.info(
+                "Cross-lingual sorgu: BM25 atlanıyor, dense moda geçiliyor",
+                extra={
+                    "event": "cross_lingual_dense_fallback",
+                    "query_lang": detect_query_language(query),
+                    "corpus_lang": settings.CORPUS_PRIMARY_LANGUAGE,
+                },
+            )
+            search_mode = "dense"
+
     # Reranking açıksa daha geniş bir aday havuzu çek; yargıç top_k'ye kırpar.
     fetch_k = max(top_k, settings.RERANK_FETCH_K) if settings.ENABLE_RERANKING else top_k
 
@@ -155,7 +177,11 @@ def retrieve_context(
     translation_executor = None
     translation_ms = 0.0
     query_lang = settings.CORPUS_PRIMARY_LANGUAGE
-    if settings.QUERY_LANGUAGE_AUTO_DETECT and search_mode in ("sparse", "hybrid"):
+    if (
+        settings.ENABLE_CROSS_LINGUAL_BM25
+        and settings.QUERY_LANGUAGE_AUTO_DETECT
+        and search_mode in ("sparse", "hybrid")
+    ):
         from src.query_translator import detect_query_language, translate_query
         query_lang = detect_query_language(query)
         if query_lang != settings.CORPUS_PRIMARY_LANGUAGE:

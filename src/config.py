@@ -145,9 +145,23 @@ class Settings(BaseSettings):
     QUERY_LANGUAGE_AUTO_DETECT: bool = Field(
         default=True,
         description=(
-            "Açıkken sorgu dili heuristic ile tespit edilir; korpus dilinden "
-            "farklıysa BM25 yolu için sorgu hedef korpus diline çevrilir. "
-            "Dense yol her durumda orijinal sorgu ile çalışır (multilingual embedding)."
+            "Açıkken sorgu dili heuristic ile tespit edilir. Korpus dilinden "
+            "farklı (cross-lingual) sorgularda davranış ENABLE_CROSS_LINGUAL_BM25 "
+            "ile belirlenir. Dense yol her durumda orijinal sorgu ile çalışır "
+            "(multilingual embedding)."
+        ),
+    )
+
+    ENABLE_CROSS_LINGUAL_BM25: bool = Field(
+        default=False,
+        description=(
+            "Cross-lingual (örn. TR sorgu → FR korpus) durumda BM25 için sorguyu "
+            "korpus diline çevirip hibrit aramaya dahil eder. Varsayılan KAPALI: "
+            "retrieval değerlendirmesi (evaluation/delf_questions.json) BM25+çevirinin "
+            "TR sorgularda recall/MRR'a katkısı OLMADIĞINI, buna karşın çeviri LLM "
+            "çağrısının ~0.6-1.1 sn gecikme eklediğini gösterdi. Kapalıyken cross-lingual "
+            "sorgular dense-only'ye düşer (hızlı, eş/üstün kalite). Aynı-dil (FR) sorgular "
+            "her durumda hibrit kalır — BM25 leksikal eşleşme orada sıralamayı iyileştirir."
         ),
     )
 
