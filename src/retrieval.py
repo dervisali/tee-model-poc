@@ -41,12 +41,9 @@ COLLECTION_NAME = settings.CHILD_COLLECTION_NAME
 # ---------------------------------------------------------------------------
 
 def _get_chroma_collection() -> chromadb.Collection:
-    """Aktif child koleksiyonunu döndürür."""
-    client = chromadb.PersistentClient(path=str(CHROMA_DIR))
-    return client.get_or_create_collection(
-        name=COLLECTION_NAME,
-        metadata={"hnsw:space": "cosine"},
-    )
+    """Aktif child koleksiyonunu paylaşılan istemci üzerinden döndürür."""
+    from src.chroma_client import get_child_collection
+    return get_child_collection()
 
 
 def _file_cache_key(path: Path) -> tuple[int, int]:
@@ -85,6 +82,17 @@ def _embed_query(query: str) -> list[float]:
     return embed_query(query)
 
 
+def _apply_reranking(query: str, chunks: list[dict], top_k: int) -> list[dict]:
+    """
+    Reranking açıksa adayları LLM yargıç ile yeniden sıralar; aksi halde
+    chunks[:top_k] döner. Geç import — reranker yalnızca bayrak açıkken yüklenir.
+    """
+    if not settings.ENABLE_RERANKING:
+        return chunks[:top_k]
+    from src.reranker import rerank
+    return rerank(query, chunks, top_n=top_k)
+
+
 # ---------------------------------------------------------------------------
 # Genel API
 # ---------------------------------------------------------------------------
@@ -97,6 +105,7 @@ def retrieve_context(
     *,
     search_mode: str | None = None,
     alpha: float | None = None,
+    metadata_filter: dict | None = None,
 ) -> list[dict]:
     """
     Sorgu için en alakalı parent parçalarını PDR ile döndürür.
@@ -117,6 +126,9 @@ def retrieve_context(
     if search_mode is None:
         search_mode = "hybrid" if settings.ENABLE_HYBRID_SEARCH else "dense"
 
+    # Reranking açıksa daha geniş bir aday havuzu çek; yargıç top_k'ye kırpar.
+    fetch_k = max(top_k, settings.RERANK_FETCH_K) if settings.ENABLE_RERANKING else top_k
+
     started = time.perf_counter()
     parents = _load_current_parents()
     parents_ms = (time.perf_counter() - started) * 1000
@@ -126,7 +138,10 @@ def retrieve_context(
         )
 
     if search_mode == "dense":
-        return _retrieve_dense(query, top_k, source_filter, distance_threshold, parents)
+        dense_hits = _retrieve_dense(
+            query, fetch_k, source_filter, distance_threshold, parents, metadata_filter
+        )
+        return _apply_reranking(query, dense_hits, top_k)
 
     # Phase 3.5: cross-lingual sorgu genişletme — yalnızca BM25 yolunu etkiler.
     # Dense yol orijinal sorgu üzerinden gider (multilingual embedding).
@@ -155,11 +170,12 @@ def retrieve_context(
     search_started = time.perf_counter()
     children = hybrid_search_children(
         query,
-        top_k=top_k,
+        top_k=fetch_k,
         source_filter=source_filter,
         search_mode=search_mode,
         alpha=alpha,
         bm25_query=bm25_query,
+        metadata_filter=metadata_filter,
     )
     child_search_ms = (time.perf_counter() - search_started) * 1000
     if not children:
@@ -188,7 +204,7 @@ def retrieve_context(
                 "filename": meta.get("source_filename", meta.get("filename", "bilinmiyor")),
             }
 
-    ordered = sorted(seen_parents.values(), key=lambda r: r["score"], reverse=True)[:top_k]
+    ordered = sorted(seen_parents.values(), key=lambda r: r["score"], reverse=True)[:fetch_k]
 
     formatted = []
     for item in ordered:
@@ -217,6 +233,7 @@ def retrieve_context(
             "event": "retrieval_complete",
             "query_len": len(query),
             "filter": source_filter or "all",
+            "metadata_filter": bool(metadata_filter),
             "results": len(formatted),
             "search_mode": search_mode,
             "top_score": formatted[0]["score"] if formatted else None,
@@ -227,7 +244,7 @@ def retrieve_context(
             "parent_format_ms": round(format_ms, 1),
         },
     )
-    return formatted
+    return _apply_reranking(query, formatted, top_k)
 
 
 def _retrieve_dense(
@@ -236,6 +253,7 @@ def _retrieve_dense(
     source_filter: str | None,
     distance_threshold: float | None,
     parents: dict,
+    metadata_filter: dict | None = None,
 ) -> list[dict]:
     """Eski yoğun-yalnız retrieval mantığı; geriye uyumluluk için korunur."""
     threshold = distance_threshold if distance_threshold is not None else settings.RETRIEVAL_DISTANCE_THRESHOLD
@@ -250,7 +268,9 @@ def _retrieve_dense(
     embed_started = time.perf_counter()
     query_vector = _embed_query(query)
     embed_ms = (time.perf_counter() - embed_started) * 1000
-    where_clause = {"source": source_filter} if source_filter else None
+    from src.metadata_filter import merge_where
+    source_where = {"source": source_filter} if source_filter else None
+    where_clause = merge_where(source_where, metadata_filter)
     query_kwargs: dict = {
         "query_embeddings": [query_vector],
         "n_results": min(top_k * 3, collection.count()),

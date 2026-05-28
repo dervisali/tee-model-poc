@@ -78,15 +78,36 @@ def _generate_answer(question: str, top_k: int = 5) -> tuple[str, list[str]]:
 # ---------------------------------------------------------------------------
 
 def _build_ragas_clients():
-    """Vertex AI Gemini LLM ve embedding modelini RAGAS sarmalayıcılarına yerleştirir."""
+    """
+    RAGAS yargıç LLM'i ve embedding modelini INFERENCE_BACKEND'e göre kurar.
+
+    Uygulamanın geri kalanı (src/llm.py) tek bir google-genai istemcisini
+    Vertex AI veya public Gemini API moduna geçirebiliyor; RAGAS ise LangChain
+    sarmalayıcıları beklediğinden burada backend'e göre uygun LangChain
+    sınıflarını seçeriz. Aksi halde public_genai modunda ADC/proje hatası alınır.
+    """
     try:
-        from langchain_google_vertexai import ChatVertexAI, VertexAIEmbeddings
         from ragas.llms import LangchainLLMWrapper
         from ragas.embeddings import LangchainEmbeddingsWrapper
     except ImportError as exc:
         raise ImportError(
-            "RAGAS bağımlılıkları eksik. Lütfen: "
-            "pip install ragas langchain-google-vertexai"
+            "RAGAS bağımlılıkları eksik. Lütfen: pip install ragas datasets"
+        ) from exc
+
+    if settings.INFERENCE_BACKEND == "public_genai":
+        judge_llm, judge_embeddings = _build_public_genai_clients()
+    else:
+        judge_llm, judge_embeddings = _build_vertex_clients()
+    return LangchainLLMWrapper(judge_llm), LangchainEmbeddingsWrapper(judge_embeddings)
+
+
+def _build_vertex_clients():
+    """Vertex AI (ADC) LangChain LLM + embedding çifti."""
+    try:
+        from langchain_google_vertexai import ChatVertexAI, VertexAIEmbeddings
+    except ImportError as exc:
+        raise ImportError(
+            "Vertex RAGAS yargıcı için: pip install langchain-google-vertexai"
         ) from exc
 
     vertex_llm = ChatVertexAI(
@@ -95,12 +116,9 @@ def _build_ragas_clients():
         location=settings.GOOGLE_CLOUD_LOCATION,
         temperature=0.0,  # yargıç çağrılarında deterministik istiyoruz
     )
-    # LangChain'in VertexAIEmbeddings sarmalayıcısı RAGAS metrikleri için
-    # kullanılır. Boyut, uygulama retrieval yolu ile (src.embeddings) aynı
-    # tutulur; aksi halde EMBEDDING_DIMENSION=768/1536 yapıldığında RAGAS
-    # 3072-boyutlu vektörlerle çalışıp koleksiyondaki vektörlerle uyumsuz
-    # olur. task_type RAGAS tarafında varsayılan kalır (RAGAS metrikleri
-    # asimetrik retrieval semantiği gerektirmez).
+    # Boyut, uygulama retrieval yolu ile (src.embeddings) aynı tutulur; aksi
+    # halde EMBEDDING_DIMENSION=768/1536 yapıldığında RAGAS 3072-boyutlu
+    # vektörlerle çalışıp koleksiyondaki vektörlerle uyumsuz olur.
     embeddings_kwargs = {
         "model_name": settings.EMBEDDING_MODEL,
         "project": settings.GOOGLE_CLOUD_PROJECT,
@@ -118,7 +136,39 @@ def _build_ragas_clients():
             "uyumsuz olabilir). langchain-google-vertexai sürümünü güncelleyin."
         )
         vertex_embeddings = VertexAIEmbeddings(**embeddings_kwargs)
-    return LangchainLLMWrapper(vertex_llm), LangchainEmbeddingsWrapper(vertex_embeddings)
+    return vertex_llm, vertex_embeddings
+
+
+def _build_public_genai_clients():
+    """Public Gemini API (GOOGLE_API_KEY) LangChain LLM + embedding çifti."""
+    if not settings.GOOGLE_API_KEY:
+        raise RuntimeError(
+            "INFERENCE_BACKEND='public_genai' için GOOGLE_API_KEY gerekli."
+        )
+    try:
+        from langchain_google_genai import (
+            ChatGoogleGenerativeAI,
+            GoogleGenerativeAIEmbeddings,
+        )
+    except ImportError as exc:
+        raise ImportError(
+            "Public Gemini RAGAS yargıcı için: pip install langchain-google-genai"
+        ) from exc
+
+    genai_llm = ChatGoogleGenerativeAI(
+        model=settings.GENERATION_MODEL,
+        google_api_key=settings.GOOGLE_API_KEY,
+        temperature=0.0,
+    )
+    # Public API embedding modeli "models/" ön ekini bekler.
+    embed_model = settings.EMBEDDING_MODEL
+    if not embed_model.startswith("models/"):
+        embed_model = f"models/{embed_model}"
+    genai_embeddings = GoogleGenerativeAIEmbeddings(
+        model=embed_model,
+        google_api_key=settings.GOOGLE_API_KEY,
+    )
+    return genai_llm, genai_embeddings
 
 
 # ---------------------------------------------------------------------------

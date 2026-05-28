@@ -143,6 +143,7 @@ def generate(
     model: str | None = None,
     temperature: float | None = None,
     response_format: type[BaseModel] | dict | None = None,
+    thinking_budget: int | None = None,
 ) -> str:
     """
     Tek geçişli LLM çağrısı.
@@ -159,6 +160,10 @@ def generate(
         Geçersiz kılma için sıcaklık; varsayılan settings.LLM_TEMPERATURE.
     response_format : Pydantic model | dict | None
         Verilirse Gemini `response_schema` ile yapılandırılmış JSON döner.
+    thinking_budget : int | None
+        Gemini 2.5 "thinking" token bütçesi. `0` = düşünmeyi kapatır (çeviri,
+        skorlama gibi akıl yürütme gerektirmeyen yardımcı çağrılarda ~5-6 sn
+        gecikme kazandırır). `None` (varsayılan) = model varsayılanını korur.
 
     Döner
     -----
@@ -175,6 +180,13 @@ def generate(
     if response_schema is not None:
         config["response_mime_type"] = "application/json"
         config["response_schema"] = response_schema
+
+    if thinking_budget is not None:
+        try:
+            from google.genai.types import ThinkingConfig  # type: ignore[import-not-found]
+            config["thinking_config"] = ThinkingConfig(thinking_budget=thinking_budget)
+        except ImportError:  # pragma: no cover — SDK yoksa thinking ayarı atlanır
+            logger.debug("ThinkingConfig kullanılamıyor; thinking_budget yok sayıldı.")
 
     started = time.perf_counter()
     response = client.models.generate_content(

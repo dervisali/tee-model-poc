@@ -66,17 +66,16 @@ def detect_query_language(text: str) -> Literal["tr", "fr"]:
     return "fr"
 
 
-_TRANSLATION_PROMPT_TEMPLATE = """You are translating a search query from {source_name} to {target_name} for retrieving DELF/DALF examiner training materials (French language proficiency exam evaluation grids, descriptors, methodology guides).
-
-PRESERVE these technical CECRL/DELF terms EXACTLY (do not translate, do not localize):
-- CECRL level codes: A1, A2, B1, B2, C1, C2
-- Skill codes: PE (production écrite), PO (production orale), CE (compréhension écrite), CO (compréhension orale)
-- Document types: grille, descripteur, stagiaire, sujet, copie, méthodologie
-
-Output ONLY the translated query — no explanations, no quotes, no preamble.
+# NOT: Bu istem KASTEN kısadır. Uzun, madde-imli bir önek + thinking_budget=0
+# birleşimi modeli şaşırtıp sorgu yerine önek metnini çevirmesine yol açıyordu
+# (gözlemlendi). Kısa, sorgu-sonda istem thinking kapalıyken bile sağlam ve
+# ~1 sn'de doğru çeviri verir; terimler satır içinde korunur.
+_TRANSLATION_PROMPT_TEMPLATE = """Translate the following search query from {source_name} to {target_name}. \
+Keep CECRL/DELF technical terms unchanged (A1-C2, PE, PO, CE, CO, grille, descripteur, \
+stagiaire, sujet, copie, méthodologie). Output ONLY the translation, nothing else.
 
 Query ({source_name}): {query}
-Query ({target_name}):"""
+Translation ({target_name}):"""
 
 
 @lru_cache(maxsize=1024)
@@ -108,7 +107,10 @@ def translate_query(query: str, target_language: Literal["tr", "fr"] = "fr") -> 
         query=query,
     )
     try:
-        raw = llm_generate(prompt=prompt, temperature=0.0).strip()
+        # thinking_budget=0: çeviri akıl yürütme gerektirmez; Gemini 2.5 Flash'ın
+        # varsayılan "thinking" adımı bu kısa çağrıya ~5-6 sn ekler. Kapatmak
+        # Türkçe sorgu yolunda (birincil kullanım) retrieval gecikmesini düşürür.
+        raw = llm_generate(prompt=prompt, temperature=0.0, thinking_budget=0).strip()
         # Modelin nadiren eklediği başta/sonda alıntı işaretlerini temizle.
         translated = raw.strip('"\'').strip()
         logger.info(

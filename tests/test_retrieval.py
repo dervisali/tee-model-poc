@@ -103,6 +103,47 @@ class TestSearchModeDispatch:
         assert callable(retrieve_context)
 
 
+class TestBM25MetadataFilter:
+    """BM25Index.search'in metadata_filter'ı Python tarafında uyguladığını test eder."""
+
+    def _index(self):
+        from src.hybrid_search import BM25Index, _tokenize
+        docs = [
+            "production orale niveau B2 grille",
+            "production orale niveau A1 grille",
+            "production écrite niveau B2 grille",
+        ]
+        metas = [
+            {"level": "B2", "skill": "PO"},
+            {"level": "A1", "skill": "PO"},
+            {"level": "B2", "skill": "PE"},
+        ]
+        tokens = [_tokenize(d, language="fr") for d in docs]
+        return BM25Index(ids=["c0", "c1", "c2"], tokens=tokens, documents=docs, metadatas=metas)
+
+    def test_filtresiz_tum_eslesmeler(self):
+        idx = self._index()
+        results = idx.search("production orale grille", top_k=10, language="fr")
+        returned = {r[0] for r in results}
+        assert returned == {"c0", "c1", "c2"}
+
+    def test_level_filtresi_kisitlar(self):
+        from src.metadata_filter import build_where_clause
+        idx = self._index()
+        where = build_where_clause(level="B2")
+        results = idx.search("production grille", top_k=10, language="fr", metadata_filter=where)
+        returned = {r[0] for r in results}
+        assert returned == {"c0", "c2"}  # yalnızca B2'ler
+
+    def test_level_ve_skill_filtresi(self):
+        from src.metadata_filter import build_where_clause
+        idx = self._index()
+        where = build_where_clause(level="B2", skill="PO")
+        results = idx.search("production grille", top_k=10, language="fr", metadata_filter=where)
+        returned = {r[0] for r in results}
+        assert returned == {"c0"}  # B2 + PO
+
+
 class TestNormalizeScores:
     """Min-max normalizasyon yardımcısı."""
 

@@ -140,7 +140,9 @@ def score_generated_content(
     )
 
     try:
-        raw = llm_generate(prompt=prompt, response_format=ConfidenceScore)
+        # thinking_budget=0: güven skoru, verilen içeriğin kaynak chunk'lara
+        # karşı yapılandırılmış değerlendirmesidir; derin akıl yürütme gerektirmez.
+        raw = llm_generate(prompt=prompt, response_format=ConfidenceScore, thinking_budget=0)
         parsed = json.loads(raw)
         validated = ConfidenceScore(**parsed)
     except Exception as exc:

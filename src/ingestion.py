@@ -61,9 +61,9 @@ CHILD_MIN_CHARS = settings.CHUNK_SIZE_CHILD_MIN
 # ---------------------------------------------------------------------------
 
 def _get_child_collection() -> chromadb.Collection:
-    """Aktif child koleksiyonunu döndürür (yoksa oluşturur)."""
-    client = chromadb.PersistentClient(path=str(CHROMA_DIR))
-    return client.get_or_create_collection(
+    """Aktif child koleksiyonunu döndürür (yoksa oluşturur). Paylaşılan istemci."""
+    from src.chroma_client import get_chroma_client
+    return get_chroma_client().get_or_create_collection(
         name=CHILD_COLLECTION_NAME,
         metadata={
             "hnsw:space": "cosine",
@@ -465,7 +465,8 @@ def run_ingestion(chunking_strategy: str | None = None) -> dict:
 
 def clear_and_reingest() -> dict:
     """tee_children koleksiyonunu, parents.json'u ve BM25 indeksini silip baştan ingest eder."""
-    chroma_client = chromadb.PersistentClient(path=str(CHROMA_DIR))
+    from src.chroma_client import get_chroma_client
+    chroma_client = get_chroma_client()
     try:
         chroma_client.delete_collection(CHILD_COLLECTION_NAME)
     except Exception as exc:

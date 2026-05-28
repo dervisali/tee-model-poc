@@ -36,6 +36,7 @@ from rank_bm25 import BM25Okapi
 
 from src.config import settings
 from src.embeddings import embed_query
+from src.metadata_filter import matches_metadata, merge_where
 
 
 logger = logging.getLogger(__name__)
@@ -179,10 +180,14 @@ class BM25Index:
         top_k: int,
         source_filter: str | None = None,
         language: str | None = None,
+        metadata_filter: dict | None = None,
     ) -> list[tuple[str, float, str, dict]]:
         """
         Sorgu için en alakalı top_k kaydı (id, score, document, metadata)
         olarak döndürür. Source filtresi metadata üzerinden uygulanır.
+
+        `metadata_filter` verilirse (ChromaDB `where` biçimi) Python tarafında
+        level/skill/doc_type vb. üzerinden ek olarak uygulanır.
 
         `language` None ise settings.CORPUS_PRIMARY_LANGUAGE; tokenizer indeks ile
         simetrik olmalıdır.
@@ -199,6 +204,8 @@ class BM25Index:
         for idx, score in enumerate(scores):
             meta = self.metadatas[idx]
             if source_filter and meta.get("source") != source_filter:
+                continue
+            if metadata_filter and not matches_metadata(meta, metadata_filter):
                 continue
             ranked.append((self.ids[idx], float(score), self.documents[idx], meta))
 
@@ -257,13 +264,9 @@ def rebuild_bm25_index_from_collection(language: str | None = None) -> BM25Index
     `language` None ise settings.CORPUS_PRIMARY_LANGUAGE kullanılır. İndeks pickle'ı
     dile pinlenmez (search ile aynı setting'i okuyacak); ancak log'a yazılır.
     """
-    import chromadb  # local to avoid circular ingestion import at module load
-    client = chromadb.PersistentClient(path=str(settings.CHROMA_DIR))
+    from src.chroma_client import get_child_collection
     try:
-        col = client.get_or_create_collection(
-            name=settings.CHILD_COLLECTION_NAME,
-            metadata={"hnsw:space": "cosine"},
-        )
+        col = get_child_collection()
     except Exception as exc:
         logger.error("BM25 inşa: koleksiyon alınamadı: %s", exc)
         return None
@@ -297,22 +300,20 @@ def _dense_search_children(
     query: str,
     top_k: int,
     source_filter: str | None,
+    metadata_filter: dict | None = None,
 ) -> list[tuple[str, float, str, dict]]:
     """ChromaDB üzerinden dense sıralama; (id, distance, doc, meta) listesi döner."""
-    import chromadb
+    from src.chroma_client import get_child_collection
     started = time.perf_counter()
-    client = chromadb.PersistentClient(path=str(settings.CHROMA_DIR))
-    col = client.get_or_create_collection(
-        name=settings.CHILD_COLLECTION_NAME,
-        metadata={"hnsw:space": "cosine"},
-    )
+    col = get_child_collection()
     if col.count() == 0:
         return []
 
     embed_started = time.perf_counter()
     qvec = embed_query(query)
     embed_ms = (time.perf_counter() - embed_started) * 1000
-    where = {"source": source_filter} if source_filter else None
+    source_where = {"source": source_filter} if source_filter else None
+    where = merge_where(source_where, metadata_filter)
     kwargs = {
         "query_embeddings": [qvec],
         "n_results": min(top_k, col.count()),
@@ -386,6 +387,7 @@ def hybrid_search_children(
     alpha: float | None = None,
     over_fetch: int = 3,
     bm25_query: str | None = None,
+    metadata_filter: dict | None = None,
 ) -> list[dict]:
     """
     BM25 + dense hibrit arama; child seviyesinde sıralı sonuç döndürür.
@@ -414,7 +416,9 @@ def hybrid_search_children(
         # Run dense embedding concurrently with BM25 index load (independent I/O).
         with ThreadPoolExecutor(max_workers=2) as executor:
             dense_started = time.perf_counter()
-            dense_future = executor.submit(_dense_search_children, query, fetch_k, source_filter)
+            dense_future = executor.submit(
+                _dense_search_children, query, fetch_k, source_filter, metadata_filter
+            )
             bm25_load_started = time.perf_counter()
             bm25_index = BM25Index.load(cache_key=_file_cache_key(BM25_INDEX_PATH))
             bm25_load_ms = (time.perf_counter() - bm25_load_started) * 1000
@@ -424,11 +428,14 @@ def hybrid_search_children(
             logger.warning("BM25 indeksi yok; sparse atlanıyor. Ingestion'ı yeniden çalıştırın.")
         else:
             bm25_search_started = time.perf_counter()
-            bm25_results = bm25_index.search(sparse_query, fetch_k, source_filter=source_filter)
+            bm25_results = bm25_index.search(
+                sparse_query, fetch_k, source_filter=source_filter,
+                metadata_filter=metadata_filter,
+            )
             bm25_search_ms = (time.perf_counter() - bm25_search_started) * 1000
     elif search_mode == "dense":
         dense_started = time.perf_counter()
-        dense_results = _dense_search_children(query, fetch_k, source_filter)
+        dense_results = _dense_search_children(query, fetch_k, source_filter, metadata_filter)
         dense_ms = (time.perf_counter() - dense_started) * 1000
     elif search_mode == "sparse":
         bm25_load_started = time.perf_counter()
@@ -438,7 +445,10 @@ def hybrid_search_children(
             logger.warning("BM25 indeksi yok; sparse atlanıyor. Ingestion'ı yeniden çalıştırın.")
         else:
             bm25_search_started = time.perf_counter()
-            bm25_results = bm25_index.search(sparse_query, fetch_k, source_filter=source_filter)
+            bm25_results = bm25_index.search(
+                sparse_query, fetch_k, source_filter=source_filter,
+                metadata_filter=metadata_filter,
+            )
             bm25_search_ms = (time.perf_counter() - bm25_search_started) * 1000
 
     if search_mode == "dense":

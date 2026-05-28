@@ -90,6 +90,31 @@ class Settings(BaseSettings):
         description="Reciprocal Rank Fusion sabiti (Cormack 2009).",
     )
 
+    # -------------------------------------------------------------------
+    # Reranking (LLM-as-reranker — ikinci-aşama precision)
+    # -------------------------------------------------------------------
+    ENABLE_RERANKING: bool = Field(
+        default=False,
+        description=(
+            "Açıkken hibrit/dense füzyon sonrası adaylar LLM yargıç ile yeniden "
+            "sıralanır (precision artışı; +1 LLM çağrısı gecikme). Varsayılan kapalı "
+            "— gecikme optimizasyonlarını korumak için. RAGAS ile kazanç ölçülüp açılır."
+        ),
+    )
+    RERANK_FETCH_K: int = Field(
+        default=20,
+        ge=1,
+        le=100,
+        description=(
+            "Reranking açıkken top_k'ye kırpılmadan önce yargıca verilen aday sayısı. "
+            "Over-fetch: daha geniş aday havuzu → reranker daha iyi seçim yapar."
+        ),
+    )
+    RERANK_MODEL: str | None = Field(
+        default=None,
+        description="Reranker LLM modeli; None ise GENERATION_MODEL kullanılır.",
+    )
+
     DEDUP_SIMILARITY_THRESHOLD: float = Field(
         default=0.95,
         ge=0.5,
@@ -158,7 +183,7 @@ class Settings(BaseSettings):
     # -------------------------------------------------------------------
     RAGAS_ENABLED: bool = Field(default=False)
     RAGAS_TEST_SET_PATH: Path = Field(
-        default=_BASE_DIR / "evaluation" / "test_questions.json"
+        default=_BASE_DIR / "evaluation" / "delf_questions.json"
     )
     RAGAS_RESULTS_DIR: Path = Field(
         default=_BASE_DIR / "evaluation" / "results"
