@@ -18,6 +18,7 @@ import json
 import logging
 import hashlib
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Literal
 
@@ -734,6 +735,7 @@ def _structured_generate(
     top_k: int,
     content_type: str,
     language: OutputLanguage | None = None,
+    defer_confidence: bool = False,
 ) -> dict:
     """
     Grounded sistem talimatı + verilen şema ile tek LLM çağrısı yapar.
@@ -742,7 +744,7 @@ def _structured_generate(
 
     Phase 2.2: ENABLE_CONFIDENCE_SCORING true ise, üretilen içeriğe
     `_confidence` alanı eklenir — kaynak chunk'lara karşı ikinci-geçiş
-    güven skoru.
+    güven skoru. defer_confidence=True ise skor arka planda hesaplanır.
     """
     system, user_prompt, chunk_indices, chunks = _build_grounded_prompt_with_chunks(
         query, instruction, top_k=top_k, language=language,
@@ -761,6 +763,15 @@ def _structured_generate(
 
     # Phase 2.2 — güven skoru
     if settings.ENABLE_CONFIDENCE_SCORING:
+        if defer_confidence:
+            result["_confidence_status"] = "pending"
+            result["_confidence_source_chunks"] = chunks
+            result["_confidence_content_type"] = content_type
+            logger.info(
+                "Confidence scoring ertelendi",
+                extra={"event": "confidence_deferred", "content_type": content_type},
+            )
+            return result
         from src.confidence import score_generated_content
         try:
             score = score_generated_content(result, chunks, content_type)
@@ -834,27 +845,33 @@ def generate_process_map(
         return cached
 
     try:
-        # --- multi-phase retrieval ---
+        # --- multi-phase retrieval (parallelised) ---
         started = time.perf_counter()
         phase_queries = _PROCESS_MAP_PHASE_QUERIES[lang]
         seen: dict[str, dict] = {}
-        for q in phase_queries:
-            phase_started = time.perf_counter()
-            phase_count = 0
-            for chunk in retrieve_context(q, top_k=8):
-                phase_count += 1
-                pid = chunk["parent_id"]
-                if pid not in seen or chunk.get("score", 0) > seen[pid].get("score", 0):
-                    seen[pid] = chunk
-            logger.info(
-                "Process map phase retrieval tamamlandı",
-                extra={
-                    "event": "process_map_phase_retrieval_complete",
-                    "query": q,
-                    "results": phase_count,
-                    "duration_ms": round((time.perf_counter() - phase_started) * 1000, 1),
-                },
-            )
+
+        def _fetch_phase(q: str) -> tuple[str, list[dict]]:
+            return q, list(retrieve_context(q, top_k=8))
+
+        with ThreadPoolExecutor(max_workers=len(phase_queries)) as executor:
+            futures = {executor.submit(_fetch_phase, q): q for q in phase_queries}
+            for future in as_completed(futures):
+                phase_started = time.perf_counter()
+                q, chunks = future.result()
+                for chunk in chunks:
+                    pid = chunk["parent_id"]
+                    if pid not in seen or chunk.get("score", 0) > seen[pid].get("score", 0):
+                        seen[pid] = chunk
+                logger.info(
+                    "Process map phase retrieval tamamlandı",
+                    extra={
+                        "event": "process_map_phase_retrieval_complete",
+                        "query": q,
+                        "results": len(chunks),
+                        "duration_ms": round((time.perf_counter() - phase_started) * 1000, 1),
+                    },
+                )
+
         merged = sorted(seen.values(), key=lambda c: c.get("score", 0), reverse=True)[:20]
         logger.info(
             "Multi-phase retrieval tamamlandı",
@@ -905,7 +922,35 @@ def generate_process_map(
         return {"hata": str(exc), "ham_cikti": ""}
 
 
-def generate_error_cards(language: OutputLanguage | None = None) -> dict:
+def score_error_cards_confidence(result: dict, source_chunks: list[dict]) -> dict:
+    """Score an already-generated error_cards result (used by deferred confidence job)."""
+    scored = dict(result)
+    scored.pop("_confidence_status", None)
+    scored.pop("_confidence_error", None)
+    try:
+        from src.confidence import score_generated_content
+
+        confidence_started = time.perf_counter()
+        scored["_confidence"] = score_generated_content(scored, source_chunks, "error_cards")
+        logger.info(
+            "Error cards confidence scoring tamamlandı",
+            extra={
+                "event": "error_cards_confidence_complete",
+                "duration_ms": round((time.perf_counter() - confidence_started) * 1000, 1),
+            },
+        )
+    except Exception as exc:
+        logger.warning("Confidence skorlaması atlandı: %s", exc)
+        scored["_confidence_status"] = "error"
+        scored["_confidence_error"] = str(exc)
+    return scored
+
+
+def generate_error_cards(
+    language: OutputLanguage | None = None,
+    *,
+    defer_confidence: bool = False,
+) -> dict:
     """Sınavcı hata kartlarını üretir."""
     lang = _resolve_language(language)
     if settings.MOCK_MODE:
@@ -921,6 +966,7 @@ def generate_error_cards(language: OutputLanguage | None = None) -> dict:
             top_k=8,
             content_type="error_cards",
             language=lang,
+            defer_confidence=defer_confidence,
         )
     except Exception as exc:
         logger.error("error_cards üretim hatası: %s", exc)

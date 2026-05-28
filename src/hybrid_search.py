@@ -28,6 +28,7 @@ import pickle
 import re
 import time
 import unicodedata
+from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 from pathlib import Path
 
@@ -409,12 +410,27 @@ def hybrid_search_children(
     bm25_load_ms = 0.0
     bm25_search_ms = 0.0
 
-    if search_mode in ("dense", "hybrid"):
+    if search_mode == "hybrid":
+        # Run dense embedding concurrently with BM25 index load (independent I/O).
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            dense_started = time.perf_counter()
+            dense_future = executor.submit(_dense_search_children, query, fetch_k, source_filter)
+            bm25_load_started = time.perf_counter()
+            bm25_index = BM25Index.load(cache_key=_file_cache_key(BM25_INDEX_PATH))
+            bm25_load_ms = (time.perf_counter() - bm25_load_started) * 1000
+            dense_results = dense_future.result()
+            dense_ms = (time.perf_counter() - dense_started) * 1000
+        if bm25_index is None:
+            logger.warning("BM25 indeksi yok; sparse atlanıyor. Ingestion'ı yeniden çalıştırın.")
+        else:
+            bm25_search_started = time.perf_counter()
+            bm25_results = bm25_index.search(sparse_query, fetch_k, source_filter=source_filter)
+            bm25_search_ms = (time.perf_counter() - bm25_search_started) * 1000
+    elif search_mode == "dense":
         dense_started = time.perf_counter()
         dense_results = _dense_search_children(query, fetch_k, source_filter)
         dense_ms = (time.perf_counter() - dense_started) * 1000
-
-    if search_mode in ("sparse", "hybrid"):
+    elif search_mode == "sparse":
         bm25_load_started = time.perf_counter()
         bm25_index = BM25Index.load(cache_key=_file_cache_key(BM25_INDEX_PATH))
         bm25_load_ms = (time.perf_counter() - bm25_load_started) * 1000

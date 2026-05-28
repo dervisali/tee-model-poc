@@ -233,6 +233,53 @@ def _poll_process_map_confidence_job() -> None:
         st.rerun()
 
 
+def _strip_error_cards_confidence_payload(result: dict) -> tuple[dict, list[dict]]:
+    """Remove bulky private confidence payload before storing in session state."""
+    clean = dict(result)
+    chunks = clean.pop("_confidence_source_chunks", [])
+    clean.pop("_confidence_content_type", None)
+    return clean, chunks
+
+
+def _start_error_cards_confidence_job(result: dict) -> dict:
+    """Queue deferred confidence scoring for an error_cards result."""
+    clean, chunks = _strip_error_cards_confidence_payload(result)
+    if clean.get("_confidence_status") != "pending" or not chunks:
+        return clean
+
+    from src.generators import score_error_cards_confidence
+
+    job_id = submit_job(score_error_cards_confidence, clean, chunks)
+    clean["_confidence_job_id"] = job_id
+    st.session_state["error_cards_confidence_job_id"] = job_id
+    logger.info(
+        "Error cards confidence job kuyruğa alındı",
+        extra={"event": "error_cards_confidence_job_queued", "job_id": job_id},
+    )
+    return clean
+
+
+def _poll_error_cards_confidence_job() -> None:
+    """Patch error_cards confidence into session state when the background job finishes."""
+    job_id = st.session_state.get("error_cards_confidence_job_id")
+    ec = st.session_state.get("error_cards")
+    if not job_id or not isinstance(ec, dict):
+        return
+
+    status = get_status(job_id)
+    if status["status"] == "done" and isinstance(status.get("result"), dict):
+        scored = dict(status["result"])
+        scored.pop("_confidence_job_id", None)
+        st.session_state["error_cards"] = scored
+        st.session_state["error_cards_confidence_job_id"] = None
+        st.rerun()
+    if status["status"] == "error":
+        ec["_confidence_status"] = "error"
+        ec["_confidence_error"] = status.get("error") or "bilinmeyen hata"
+        st.session_state["error_cards_confidence_job_id"] = None
+        st.rerun()
+
+
 def _schedule_confidence_autorefresh() -> None:
     """Ask the browser to refresh while deferred confidence scoring is pending."""
     components.html(
@@ -254,6 +301,7 @@ _DEFAULTS = {
     "process_map": None,
     "process_map_confidence_job_id": None,
     "error_cards": None,
+    "error_cards_confidence_job_id": None,
     "glossary": None,
     "simulation": None,
     "sim_selected": None,
@@ -430,6 +478,7 @@ with tabs[0]:
 with tabs[1]:
     st.subheader("Süreç Haritası, Hata Kartları ve Terim Sözlüğü")
     _poll_process_map_confidence_job()
+    _poll_error_cards_confidence_job()
 
     # --- Process Map ---
     st.markdown("#### 🗺️ Süreç Haritası")
@@ -483,11 +532,12 @@ with tabs[1]:
         result, error = _run_via_queue(
             "Hata kartları oluşturuluyor", generate_error_cards,
             language=st.session_state.get("output_language", "tr"),
+            defer_confidence=True,
         )
         if error:
             st.error(f"Hata: {error}")
         else:
-            st.session_state["error_cards"] = result
+            st.session_state["error_cards"] = _start_error_cards_confidence_job(result)
             st.session_state["approvals"]["error_cards"] = {}
 
     ec = st.session_state.get("error_cards")
@@ -495,6 +545,7 @@ with tabs[1]:
         if "hata" in ec:
             st.error(f"İçerik üretilemedi: {ec.get('hata')}")
         else:
+            _render_confidence_banner(ec)
             cards = ec.get("hata_kartlari", [])
             for card in cards:
                 with st.expander(f"Kart {card.get('kart_no', '?')}: {card.get('hata', '')}"):
@@ -508,6 +559,8 @@ with tabs[1]:
                         </div>""",
                         unsafe_allow_html=True,
                     )
+            if ec.get("_confidence_status") == "pending":
+                _schedule_confidence_autorefresh()
 
     st.markdown("---")
 

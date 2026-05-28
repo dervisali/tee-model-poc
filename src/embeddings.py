@@ -124,6 +124,7 @@ def embed_passages(texts: list[str], batch_size: int = 100) -> list[list[float]]
     return output
 
 
+@lru_cache(maxsize=512)
 def embed_query(text: str) -> list[float]:
     """Sorgu gömesi — arama yönü."""
     return _embed([text], task_type="RETRIEVAL_QUERY")[0]
