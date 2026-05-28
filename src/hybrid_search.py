@@ -387,6 +387,7 @@ def hybrid_search_children(
     alpha: float | None = None,
     over_fetch: int = 3,
     bm25_query: str | None = None,
+    bm25_query_future=None,
     metadata_filter: dict | None = None,
 ) -> list[dict]:
     """
@@ -400,11 +401,26 @@ def hybrid_search_children(
                  ile çalışır. Türkçe sorgu + Fransızca korpus durumunda
                  retrieve_context burayı çeviri ile besler; dense yine
                  orijinal sorgu üzerinden gider (multilingual embedding).
+    bm25_query_future : `.result()` ile çeviri dizesini döndüren bir Future
+                 (concurrent.futures). Verilirse `bm25_query`/`query` yerine
+                 BM25 araması ANINDA çözülür — çeviri dense retrieval ile
+                 örtüşsün diye (Finding #3). Çözüm hatasında orijinal sorguya düşer.
 
     Döner — her öğe: {id, document, metadata, score, dense_distance, bm25_score}
     """
     fetch_k = top_k * over_fetch
-    sparse_query = bm25_query if bm25_query is not None else query
+
+    def _resolve_sparse_query() -> str:
+        """BM25 sorgusunu çözer; future varsa onu bekler (dense ile örtüşmüştür)."""
+        if bm25_query_future is not None:
+            try:
+                resolved = bm25_query_future.result()
+                if resolved:
+                    return resolved
+            except Exception as exc:  # noqa: BLE001 — çeviri hatası retrieval'ı kırmamalı
+                logger.warning("Çeviri future çözülemedi; orijinal sorgu kullanılıyor: %s", exc)
+            return query
+        return bm25_query if bm25_query is not None else query
 
     dense_results = []
     bm25_results: list[tuple[str, float, str, dict]] = []
@@ -427,6 +443,9 @@ def hybrid_search_children(
         if bm25_index is None:
             logger.warning("BM25 indeksi yok; sparse atlanıyor. Ingestion'ı yeniden çalıştırın.")
         else:
+            # Çeviri future'ı burada çözülür — dense retrieval bittiğinden çeviri
+            # genelde hazırdır; örtüşme sayesinde kritik yola gecikme eklemez.
+            sparse_query = _resolve_sparse_query()
             bm25_search_started = time.perf_counter()
             bm25_results = bm25_index.search(
                 sparse_query, fetch_k, source_filter=source_filter,
@@ -444,6 +463,7 @@ def hybrid_search_children(
         if bm25_index is None:
             logger.warning("BM25 indeksi yok; sparse atlanıyor. Ingestion'ı yeniden çalıştırın.")
         else:
+            sparse_query = _resolve_sparse_query()
             bm25_search_started = time.perf_counter()
             bm25_results = bm25_index.search(
                 sparse_query, fetch_k, source_filter=source_filter,

@@ -145,38 +145,60 @@ def retrieve_context(
 
     # Phase 3.5: cross-lingual sorgu genişletme — yalnızca BM25 yolunu etkiler.
     # Dense yol orijinal sorgu üzerinden gider (multilingual embedding).
+    #
+    # Finding #3: Çeviri (~1.3 sn LLM çağrısı) ayrı bir thread'de BAŞLATILIR ve
+    # hybrid modda dense retrieval ile ÖRTÜŞÜR. Dense yol çeviriyi beklemediğinden
+    # (çok dilli embedding) çeviri kritik yoldan çıkar; yalnızca BM25 yolu, dense
+    # tamamlandıktan sonra çeviri sonucunu çözer (o ana dek genelde hazırdır).
     bm25_query: str | None = None
+    bm25_query_future = None
+    translation_executor = None
     translation_ms = 0.0
+    query_lang = settings.CORPUS_PRIMARY_LANGUAGE
     if settings.QUERY_LANGUAGE_AUTO_DETECT and search_mode in ("sparse", "hybrid"):
         from src.query_translator import detect_query_language, translate_query
         query_lang = detect_query_language(query)
         if query_lang != settings.CORPUS_PRIMARY_LANGUAGE:
-            translation_started = time.perf_counter()
-            bm25_query = translate_query(query, target_language=settings.CORPUS_PRIMARY_LANGUAGE)
-            translation_ms = (time.perf_counter() - translation_started) * 1000
-            logger.info(
-                "Cross-lingual BM25",
-                extra={
-                    "event": "cross_lingual_translation",
-                    "source_lang": query_lang,
-                    "target_lang": settings.CORPUS_PRIMARY_LANGUAGE,
-                    "translated_preview": bm25_query[:80],
-                },
+            from concurrent.futures import ThreadPoolExecutor
+            translation_executor = ThreadPoolExecutor(max_workers=1)
+            bm25_query_future = translation_executor.submit(
+                translate_query, query, settings.CORPUS_PRIMARY_LANGUAGE
             )
 
     # Hibrit veya sparse — child seviyesinde arama, sonra parent_id'ye göre dedup
     from src.hybrid_search import hybrid_search_children  # geç import (döngüsel sorun yok)
 
     search_started = time.perf_counter()
-    children = hybrid_search_children(
-        query,
-        top_k=fetch_k,
-        source_filter=source_filter,
-        search_mode=search_mode,
-        alpha=alpha,
-        bm25_query=bm25_query,
-        metadata_filter=metadata_filter,
-    )
+    try:
+        children = hybrid_search_children(
+            query,
+            top_k=fetch_k,
+            source_filter=source_filter,
+            search_mode=search_mode,
+            alpha=alpha,
+            bm25_query=bm25_query,
+            bm25_query_future=bm25_query_future,
+            metadata_filter=metadata_filter,
+        )
+    finally:
+        if translation_executor is not None:
+            # Çeviri future'ı hybrid_search_children içinde tüketildi; örtüşen
+            # süreyi logla ve executor'ı kapat.
+            if bm25_query_future is not None and bm25_query_future.done():
+                try:
+                    translated = bm25_query_future.result()
+                    logger.info(
+                        "Cross-lingual BM25 (concurrent)",
+                        extra={
+                            "event": "cross_lingual_translation",
+                            "source_lang": query_lang,
+                            "target_lang": settings.CORPUS_PRIMARY_LANGUAGE,
+                            "translated_preview": (translated or "")[:80],
+                        },
+                    )
+                except Exception:  # noqa: BLE001 — log amaçlı, sessiz geç
+                    pass
+            translation_executor.shutdown(wait=False)
     child_search_ms = (time.perf_counter() - search_started) * 1000
     if not children:
         raise ValueError("Sorgu için hiçbir sonuç döndürülmedi.")

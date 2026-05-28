@@ -77,8 +77,9 @@ class TestRetrieveContextCrossLingual:
     def test_tr_query_routes_translation_to_bm25(self, monkeypatch):
         """
         Phase 3.5 contract testi: retrieve_context Türkçe sorgu aldığında
-        hybrid_search_children'a bm25_query parametresinin geçtiğini
-        doğrula. Gerçek embed/BM25/Chroma çağrısı yok — sahte iç fonksiyonlar.
+        hybrid_search_children'a çeviri future'ının (bm25_query_future) geçtiğini
+        ve Fransızca varyanta çözüldüğünü doğrula. Dense yol orijinal TR sorgu ile
+        gider. Gerçek embed/BM25/Chroma çağrısı yok — sahte iç fonksiyonlar.
         """
         from src import retrieval as retrieval_mod
         from src.config import settings
@@ -89,9 +90,11 @@ class TestRetrieveContextCrossLingual:
 
         captured = {}
 
-        def fake_hybrid_search_children(query, *, top_k, source_filter, search_mode, alpha, bm25_query=None, **kwargs):
+        def fake_hybrid_search_children(query, *, top_k, source_filter, search_mode, alpha,
+                                        bm25_query=None, bm25_query_future=None, **kwargs):
             captured["query"] = query
             captured["bm25_query"] = bm25_query
+            captured["bm25_query_future"] = bm25_query_future
             return [{
                 "id": "x_par0_c0",
                 "document": "child text",
@@ -117,7 +120,10 @@ class TestRetrieveContextCrossLingual:
 
         # Dense path uses original Turkish query
         assert captured["query"] == "B2 yazılı üretim kohezyon kriteri"
-        # BM25 path gets translated variant (MOCK_MODE deterministic mock)
-        assert captured["bm25_query"] is not None
-        assert captured["bm25_query"].startswith("[MOCK-FR]")
+        # Finding #3: BM25 translation now runs concurrently and is passed as a
+        # future (overlaps dense retrieval) rather than a precomputed string.
+        assert captured["bm25_query"] is None
+        assert captured["bm25_query_future"] is not None
+        translated = captured["bm25_query_future"].result()
+        assert translated.startswith("[MOCK-FR]")
         assert len(out) == 1
