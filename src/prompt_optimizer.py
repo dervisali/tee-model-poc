@@ -33,40 +33,40 @@ OPTIMIZED_PROMPTS_PATH = settings.BASE_DIR / "optimized_prompts.json"
 
 VARIANTS: dict[str, list[dict]] = {
     "process_map": [
-        {"name": "Varsayılan", "query": "maaş hesaplama adımları süreç akışı prosedür", "extra_hint": ""},
-        {"name": "Kontrol odaklı",
-         "query": "bordro hazırlama işlem sırası kontrol listesi onay adım",
-         "extra_hint": "Her adımda kontrol noktasını ve sorumlu kişiyi açıkça belirt."},
-        {"name": "Mevzuat + takvim",
-         "query": "mutemet aylık görev takvimi mevzuat son tarih sorumluluk",
-         "extra_hint": "Her adım için yasal dayanak veya kritik son tarihi ekle."},
+        {"name": "Varsayılan", "query": "DELF değerlendirme süreci sınavcı-düzeltici protokolü iş akışı", "extra_hint": ""},
+        {"name": "Faz + sorumlu",
+         "query": "sınavcı-düzeltici habilitasyon hazırlık bireysel düzeltme çift düzeltme finalizasyon",
+         "extra_hint": "Her adımda fazı (Hazırlık / Bireysel Düzeltme / Çift Düzeltme / Finalizasyon) ve sorumlu rolü açıkça belirt."},
+        {"name": "Risk + atipik",
+         "query": "atipik kopya istisnai durum puan uyuşmazlığı delibération karar riski",
+         "extra_hint": "Her adımın risk alanına atipik kopya veya puan uyuşmazlığı gibi olası istisnaları ekle."},
     ],
     "error_cards": [
-        {"name": "Varsayılan", "query": "sık yapılan hatalar yanlış uygulama kaçırılan adım", "extra_hint": ""},
-        {"name": "Tacit + önlem",
-         "query": "deneyimli mutemet uyarı tuzak dikkat pratik ipucu",
-         "extra_hint": "Her hatanın nasıl önleneceğine dair pratik adım ekle."},
-        {"name": "Yasal sonuç",
-         "query": "yasal yaptırım ceza sorumluluk idari işlem hata sonucu",
-         "extra_hint": "Her hatanın yasal ve idari sonuçlarını dogru_uygulama alanında belirt."},
+        {"name": "Varsayılan", "query": "sınavcı değerlendirme hataları yanlış puanlama DELF", "extra_hint": ""},
+        {"name": "Halo + önyargı",
+         "query": "halo etkisi önyargı tutarsız puanlama güvenilirlik arası değerlendirici",
+         "extra_hint": "Her hatanın nasıl önleneceğine dair somut pratik adım ekle."},
+        {"name": "Grille uyumu",
+         "query": "grille kriterleri yanlış yorumlama bant tanımlayıcı seviye karışıklığı",
+         "extra_hint": "Her hatanın hangi grille kriteri veya tanımlayıcısıyla ilgili olduğunu belirt."},
     ],
     "glossary": [
-        {"name": "Varsayılan", "query": "kuruma özgü terimler teknik kavramlar kısaltmalar", "extra_hint": ""},
+        {"name": "Varsayılan", "query": "DELF CECRL terimleri descripteur grille kriterler bant", "extra_hint": ""},
         {"name": "Kullanım + hata",
-         "query": "maaş bordro vergi kesinti tazminat teknik terim kullanım",
+         "query": "DELF terim yanlış anlama seviye karışıklığı uygulama hatası",
          "extra_hint": "Terimin yanlış anlaşılmasından kaynaklanan yaygın hatayı kullanim_ornegi alanına ekle."},
-        {"name": "Form + belge",
-         "query": "resmi form belge kısaltma SGK vergi dairesi bildirim",
-         "extra_hint": "Her terimin hangi form veya belgede geçtiğini belirt."},
+        {"name": "Beceri + seviye",
+         "query": "PE PO CE CO becerisi A1 A2 B1 B2 C1 seviye tanımlayıcıları",
+         "extra_hint": "Her terimin hangi beceri (PE/PO/CE/CO) ve seviye (A1-C1) bağlamında kullanıldığını belirt."},
     ],
     "simulation": [
-        {"name": "Varsayılan", "query": "kritik karar noktası yüksek hata riski zor durum", "extra_hint": ""},
-        {"name": "Ay ortası",
-         "query": "ay ortası işe giriş çıkış kısmi maaş SGK bildirim",
-         "extra_hint": "Senaryo ay ortası başlayan veya ayrılan personel durumunu ele alsın."},
-        {"name": "Yasal limit",
-         "query": "yasal limit icra kesintisi net aylık dörtte bir vergi dilimi",
-         "extra_hint": "Senaryo bir yasal sınırın aşılma riskini içeren kararı test etsin."},
+        {"name": "Varsayılan", "query": "kritik değerlendirme kararı atipik kopya ikilemli durum", "extra_hint": ""},
+        {"name": "Puan uyuşmazlığı",
+         "query": "iki düzeltici arasında puan farkı uzlaşma prosedürü eşik",
+         "extra_hint": "Senaryo iki sınavcı arasındaki puan uyuşmazlığının çözüm sürecini test etsin."},
+        {"name": "Sınır seviye",
+         "query": "sınır puan geçme kalma kararı A2 B1 B2 eşik grille bant",
+         "extra_hint": "Senaryo bir adayın seviye eşiğinde olduğu ve kararın güç olduğu durumu ele alsın."},
     ],
 }
 
@@ -80,25 +80,28 @@ GENERATOR_LABELS = {
 
 _INSTRUCTION_TEMPLATES: dict[str, str] = {
     "process_map": (
-        "Yukarıdaki bağlam belgelerine dayanarak maaş mutemetliği süreç haritasını oluştur.\n"
+        "Yukarıdaki bağlam belgelerine dayanarak DELF/DALF sınavcı-düzeltici değerlendirme "
+        "sürecinin kapsamlı haritasını oluştur. En az 10, en fazla 15 adım üret.\n"
         "EXTRA_HINT\n"
         "Sadece geçerli JSON döndür. kaynak_chunk_indeksleri alanına kullandığın "
         "parent_id değerlerini yaz."
     ),
     "error_cards": (
-        "Yukarıdaki bağlam belgelerine dayanarak yeni maaş mutemedinin sık yaptığı hataları listele.\n"
+        "Yukarıdaki bağlam belgelerine dayanarak yeni DELF/DALF sınavcı-düzelticisinin "
+        "sık yaptığı değerlendirme hatalarını listele.\n"
         "EXTRA_HINT\n"
         "Sadece geçerli JSON döndür. kaynak_chunk_indeksleri alanına kullandığın "
         "parent_id değerlerini yaz."
     ),
     "glossary": (
-        "Yukarıdaki bağlam belgelerine dayanarak maaş mutemetliği alanına özgü terim sözlüğü oluştur.\n"
+        "Yukarıdaki bağlam belgelerine dayanarak DELF/DALF sınavcıları için "
+        "CECRL/DELF terim sözlüğü oluştur.\n"
         "EXTRA_HINT\n"
         "Sadece geçerli JSON döndür."
     ),
     "simulation": (
-        "Yukarıdaki bağlam belgelerine dayanarak maaş mutemetliği için etkileşimli bir simülasyon "
-        "senaryosu oluştur.\n"
+        "Yukarıdaki bağlam belgelerine dayanarak DELF/DALF sınavcı-düzelticileri için "
+        "etkileşimli bir değerlendirme karar senaryosu oluştur.\n"
         "EXTRA_HINT\n"
         "Doğru cevap seçeneğinde dogru_mu = true olmalı. Sadece geçerli JSON döndür."
     ),
@@ -121,7 +124,7 @@ Aşağıdaki yapay zeka tarafından üretilen içeriği üç kriter üzerinden 0
 
 1. DAYANDIRMA (grounding): İçerik kaynak chunk indekslerine dayandırılmış mı? Atıflar makul mü?
 2. TAMLAMA (completeness): Tüm zorunlu JSON alanları eksiksiz ve anlamlı biçimde dolu mu?
-3. PRATIK FAYDALILIK (usefulness): İçerik yeni bir maaş mutemedi için gerçekten öğretici mi?
+3. PRATIK FAYDALILIK (usefulness): İçerik yeni bir DELF/DALF sınavcı-düzelticisi için gerçekten öğretici mi?
 
 ÜRETİLEN İÇERİK:
 {content}

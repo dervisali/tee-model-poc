@@ -15,11 +15,11 @@ pytestmark = pytest.mark.requires_bm25
 
 
 class TestBM25Tokenizer:
-    """Türkçe karakter farkındalığı ve küçük harf normalizasyonu."""
+    """Dile duyarlı tokenizasyon. Türkçe testleri language='tr' ile, Fransızca testleri language='fr' ile."""
 
     def test_turkce_karakterler_korunur(self):
         from src.hybrid_search import _tokenize
-        tokens = _tokenize("Maaş Mutemedi: kümülatif matrah hesabı")
+        tokens = _tokenize("Maaş Mutemedi: kümülatif matrah hesabı", language="tr")
         assert "maaş" in tokens
         assert "mutemedi" in tokens
         assert "kümülatif" in tokens
@@ -27,11 +27,29 @@ class TestBM25Tokenizer:
 
     def test_tokenizer_bos_metin(self):
         from src.hybrid_search import _tokenize
-        assert _tokenize("") == []
+        assert _tokenize("", language="tr") == []
+        assert _tokenize("", language="fr") == []
 
     def test_tokenizer_kucuk_harf(self):
         from src.hybrid_search import _tokenize
-        assert _tokenize("İCRA Kesintisi") == ["i̇cra", "kesintisi"] or _tokenize("İCRA Kesintisi") == ["icra", "kesintisi"]
+        result = _tokenize("İCRA Kesintisi", language="tr")
+        assert result in (["i̇cra", "kesintisi"], ["icra", "kesintisi"])
+
+    def test_fransizca_elision_ve_stop_words(self):
+        from src.hybrid_search import _tokenize
+        tokens = _tokenize("l'examen de la production écrite", language="fr")
+        # l, de, la stop-words; examen ve production écrite stem'lenir
+        assert "examen" in tokens
+        assert "product" in tokens  # Snowball French: production -> product
+        assert "écrit" in tokens     # écrite -> écrit
+        assert "la" not in tokens
+        assert "de" not in tokens
+
+    def test_fransizca_stemmer_inflectional(self):
+        from src.hybrid_search import _tokenize
+        # Aynı kökten gelen iki form aynı stem'i üretmeli
+        assert _tokenize("corrigés", language="fr") == _tokenize("corriger", language="fr")
+        assert _tokenize("correcteurs", language="fr") == _tokenize("correcteur", language="fr")
 
 
 class TestRRFFuzyonu:
@@ -83,6 +101,47 @@ class TestSearchModeDispatch:
         # belirsiz olduğundan testte yalnızca tipik kullanım kontratı vardır.
         from src.retrieval import retrieve_context
         assert callable(retrieve_context)
+
+
+class TestBM25MetadataFilter:
+    """BM25Index.search'in metadata_filter'ı Python tarafında uyguladığını test eder."""
+
+    def _index(self):
+        from src.hybrid_search import BM25Index, _tokenize
+        docs = [
+            "production orale niveau B2 grille",
+            "production orale niveau A1 grille",
+            "production écrite niveau B2 grille",
+        ]
+        metas = [
+            {"level": "B2", "skill": "PO"},
+            {"level": "A1", "skill": "PO"},
+            {"level": "B2", "skill": "PE"},
+        ]
+        tokens = [_tokenize(d, language="fr") for d in docs]
+        return BM25Index(ids=["c0", "c1", "c2"], tokens=tokens, documents=docs, metadatas=metas)
+
+    def test_filtresiz_tum_eslesmeler(self):
+        idx = self._index()
+        results = idx.search("production orale grille", top_k=10, language="fr")
+        returned = {r[0] for r in results}
+        assert returned == {"c0", "c1", "c2"}
+
+    def test_level_filtresi_kisitlar(self):
+        from src.metadata_filter import build_where_clause
+        idx = self._index()
+        where = build_where_clause(level="B2")
+        results = idx.search("production grille", top_k=10, language="fr", metadata_filter=where)
+        returned = {r[0] for r in results}
+        assert returned == {"c0", "c2"}  # yalnızca B2'ler
+
+    def test_level_ve_skill_filtresi(self):
+        from src.metadata_filter import build_where_clause
+        idx = self._index()
+        where = build_where_clause(level="B2", skill="PO")
+        results = idx.search("production grille", top_k=10, language="fr", metadata_filter=where)
+        returned = {r[0] for r in results}
+        assert returned == {"c0"}  # B2 + PO
 
 
 class TestNormalizeScores:

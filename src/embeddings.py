@@ -97,16 +97,34 @@ def embed_passage(text: str) -> list[float]:
     return _embed([text], task_type="RETRIEVAL_DOCUMENT")[0]
 
 
-def embed_passages(texts: list[str], batch_size: int = 32) -> list[list[float]]:
-    """Toplu belge gömeleri — ingestion sırasında verim için kullanılır."""
+def embed_passages(texts: list[str], batch_size: int = 100) -> list[list[float]]:
+    """
+    Toplu belge gömeleri — ingestion sırasında verim için kullanılır.
+
+    Hem Vertex AI hem de public Gemini API RPM kotalarına tabidir.
+    Vertex AI kotası 100k RPM'e yükseltildiğinden sleep kısaltıldı;
+    public_genai ücretsiz katmanı daha kısıtlı olduğundan daha uzun bekler.
+    """
+    import time
+
+    # Vertex AI quota has been increased to 100k RPM, so we can reduce sleep significantly.
+    sleep_between_batches = 4.5 if settings.INFERENCE_BACKEND == "public_genai" else 0.5
+
     output: list[list[float]] = []
-    for start in range(0, len(texts), batch_size):
+    total_batches = (len(texts) + batch_size - 1) // batch_size
+
+    for i, start in enumerate(range(0, len(texts), batch_size)):
+        if i > 0 and sleep_between_batches > 0:
+            time.sleep(sleep_between_batches)
         output.extend(
             _embed(texts[start:start + batch_size], task_type="RETRIEVAL_DOCUMENT")
         )
+        if total_batches > 10 and (i + 1) % 10 == 0:
+            logger.info("Embedding progress: %d/%d batch", i + 1, total_batches)
     return output
 
 
+@lru_cache(maxsize=512)
 def embed_query(text: str) -> list[float]:
     """Sorgu gömesi — arama yönü."""
     return _embed([text], task_type="RETRIEVAL_QUERY")[0]

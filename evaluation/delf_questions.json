@@ -1,0 +1,157 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "created": "2026-05-28",
+    "description": "DELF/DALF sınavcı-düzeltici (examiner-correcteur) RAGAS değerlendirme seti. Sorular bilingual (TR + FR) — cross-lingual retrieval yolunu (TR sorgu → FR korpus) test eder. Referans cevaplar new_docs/ korpusundaki gerçek içeriğe dayanır (grille, descripteur, methodologie, manuel-exacor double correction kılavuzu, copies atypiques).",
+    "total_questions": 18,
+    "language_split": {"tr": 9, "fr": 9},
+    "coverage_note": "A1-C1 seviyeleri, PE/PO becerileri, grille/descripteur/methodologie/manuel/copie doc_type'ları kapsanır.",
+    "grounding": "Her referans cevap, retrieve_context ile geri-getirilebilen parent chunk'larda doğrulandı (manuel-exacor.pdf, B2_Grille_PO.pdf, Echelle globale.pdf, Diaporama_rôle_EC_VF.pptx, Présentation_copies_atypiques_VF.pptx, PO_B1.pdf, A1_stagiaire.pdf)."
+  },
+  "questions": [
+    {
+      "id": "d01",
+      "category": "double_correction",
+      "level": "general",
+      "skill": "general",
+      "question": "DELF/DALF'ta epreuvelerin güvenilirliği ve geçerliliği için kaç değerlendirici görevlendirilir?",
+      "ground_truth": "Çift değerlendirme (double évaluation) uygulanır: bireysel epreuvede (production orale) 2 examinateur, kolektif epreuvelerde (yazılı bölümler) 2 correcteur görev alır. Amaç değerlendirmenin fidélité (güvenilirlik) ve validité (geçerlilik) sağlamaktır."
+    },
+    {
+      "id": "d02",
+      "category": "double_correction",
+      "level": "general",
+      "skill": "general",
+      "question": "İkinci düzeltici (correcteur n°2) bir kopyayı düzeltirken hangi rengi kullanmalı ve hangi üç durumla karşılaşabilir?",
+      "ground_truth": "İkinci düzeltici, birinci düzelticininkinden farklı renkte bir kalem kullanır. Üç durum vardır: (1) iki düzeltici arasında hiçbir fark yoksa harmonizasyon gerekmez, ikinci düzeltici notu görünür bir işaretle onaylar; (2) puan sayımı/hesabında hata veya açık bir barem hatası varsa ikinci düzeltici hatayı çizip puanı ve toplam notu düzeltir; (3) bir görüş ayrılığı (désaccord) varsa ilgili sorular kurşun kalemle soru işaretiyle işaretlenir ve iki düzeltici arasında harmonizasyon/concertation yapılır."
+    },
+    {
+      "id": "d03",
+      "category": "methodologie",
+      "level": "general",
+      "skill": "PE",
+      "question": "Üretilen yazıda kelime sayımı (décompte des mots) nasıl yapılır ve hangi öğeler sayılır?",
+      "ground_truth": "Adayın ürettiği her şey — adayın çizdiği/karaladığı sözcükler hariç — kelime sayımına dahil edilir; buna tarih, mektubun konusu (objet), imza gibi öğeler de girer ve bu kural A1'den C2'ye tüm seviyeler için geçerlidir. Örnek sayım kuralları: «un sujet» = 2 kelime, «c'est-à-dire» = 1 kelime, «je l'ai vu avant-hier» = 4 kelime."
+    },
+    {
+      "id": "d04",
+      "category": "methodologie",
+      "level": "general",
+      "skill": "PE",
+      "question": "Minimum kelime sayısına uyulmaması değerlendirmede nasıl bir sonuç doğurur?",
+      "ground_truth": "Üretilmesi gereken minimum kelime sayısına uyulmaması puan açısından bir yaptırıma (sanction) yol açabilir; bunun kesin göstergeleri değerlendirme grilinde «anomalies» (anormallikler) bölümünde belirtilir."
+    },
+    {
+      "id": "d05",
+      "category": "copie",
+      "level": "general",
+      "skill": "PE",
+      "question": "Tam hors-sujet (hem tematik hem söylemsel konu dışı) bir kopya nasıl puanlanır?",
+      "ground_truth": "Tam hors-sujet durumunda aday; Réalisation de la tâche, Cohérence et cohésion ve Adéquation sociolinguistique kriterlerinden 0 alır. Lexique ve Morphosyntaxe kriterlerinde ise aday ne «Au niveau» ne de «Au niveau +» olarak tanımlanabilir."
+    },
+    {
+      "id": "d06",
+      "category": "grille",
+      "level": "B2",
+      "skill": "PO",
+      "question": "DELF B2 sözlü üretim (production orale) sınavında iki bölümün süreleri nedir?",
+      "ground_truth": "DELF B2 production orale iki bölümden oluşur: monologue suivi (sürekli monolog) 5 ila 7 dakika, exercice en interaction (etkileşimli alıştırma) ise 10 ila 13 dakika sürer."
+    },
+    {
+      "id": "d07",
+      "category": "grille",
+      "level": "B2",
+      "skill": "PO",
+      "question": "DELF B2 production orale değerlendirme grilinde kriterler hangi puanlarla derecelendirilir?",
+      "ground_truth": "B2 production orale grilinde her kriter 0, 1, 3 ve 5 puan basamaklarıyla derecelendirilir (Non répondu / En dessous du niveau ciblé / Au niveau ciblé B2 / B2+). Kriterler arasında Réalisation de la tâche (monologue suivi ve exercice en interaction), Lexique ve Morphosyntaxe yer alır."
+    },
+    {
+      "id": "d08",
+      "category": "descripteur",
+      "level": "A1",
+      "skill": "PO",
+      "question": "A1 seviyesinde sözlü üretimin ilk görevi olan yönlendirilmiş görüşmede (entretien dirigé) adaydan ne beklenir?",
+      "ground_truth": "A1 entretien dirigé görevinde adayın kendini tanıtması ve kimliği ile yakın çevresi (isim, yaş, aile, milliyet vb.) hakkında basit terimlerle, art arda sıralanmış (juxtaposées) fikirler biçiminde konuşabilmesi beklenir. Hedef seviyede aday basit ve öngörülebilir sorulara yanıt verebilir; bazı sorular anlaşılmayabilir."
+    },
+    {
+      "id": "d09",
+      "category": "descripteur",
+      "level": "general",
+      "skill": "general",
+      "question": "CECRL küresel ölçeğine (échelle globale) göre A1 seviyesindeki bir kullanıcı neler yapabilir?",
+      "ground_truth": "A1 kullanıcısı somut ihtiyaçları karşılamaya yönelik tanıdık ve günlük ifadeleri ve çok basit cümleleri anlayıp kullanabilir; kendini veya başkasını tanıtabilir, bir kişiye yaşadığı yer, ilişkileri, sahip oldukları gibi konularda sorular sorabilir ve aynı türden sorulara yanıt verebilir; muhatabı yavaş ve net konuşursa basit biçimde iletişim kurabilir."
+    },
+    {
+      "id": "d10",
+      "category": "double_correction",
+      "level": "general",
+      "skill": "general",
+      "question": "Combien de correcteurs interviennent dans la double évaluation des épreuves du DELF/DALF, et pourquoi ?",
+      "ground_truth": "La double évaluation prévoit 2 examinateurs pour l'épreuve individuelle (production orale) et 2 correcteurs pour les épreuves collectives (écrites). Ce dispositif vise à garantir la fidélité et la validité des évaluations."
+    },
+    {
+      "id": "d11",
+      "category": "double_correction",
+      "level": "general",
+      "skill": "general",
+      "question": "Que fait le correcteur n°2 lorsqu'il observe un désaccord (et non une simple erreur de calcul) avec le correcteur n°1 ?",
+      "ground_truth": "En cas de désaccord, le correcteur n°2 signale discrètement les questions concernées (par exemple avec un point d'interrogation au crayon de papier) afin de les identifier rapidement, puis une concertation/harmonisation entre les deux correcteurs est organisée. Il utilise un stylo d'une couleur différente de celle du correcteur n°1."
+    },
+    {
+      "id": "d12",
+      "category": "methodologie",
+      "level": "B1",
+      "skill": "PO",
+      "question": "Au niveau B1 en production orale, que doit faire l'examinateur si la production du candidat est trop courte, et que valorise-t-il ?",
+      "ground_truth": "Si la production est trop courte, l'examinateur doit relancer le candidat ou lui demander des précisions. Au niveau B1 on attend une argumentation non complexe et linéaire ; l'examinateur valorise l'organisation du discours, notamment les articulateurs tels que « d'abord/après/enfin » et les locutions exprimant la cause et la conséquence."
+    },
+    {
+      "id": "d13",
+      "category": "methodologie",
+      "level": "general",
+      "skill": "PE",
+      "question": "Quelle est la règle de décompte des mots en production écrite, et donnez des exemples de comptage.",
+      "ground_truth": "Tout ce qui est produit par le candidat — sauf les mots ou ensembles de signes barrés ou raturés — doit être comptabilisé (y compris la date, l'objet de la lettre, la signature, etc.), quel que soit le niveau de A1 à C2. Exemples : « un sujet » = 2 mots, « c'est-à-dire » = 1 mot, « je l'ai vu avant-hier » = 4 mots."
+    },
+    {
+      "id": "d14",
+      "category": "copie",
+      "level": "general",
+      "skill": "PE",
+      "question": "Comment évalue-t-on une copie en hors-sujet complet (thématique et discursif) en production écrite ?",
+      "ground_truth": "En cas de hors-sujet complet, le candidat obtient la note de 0 aux critères Réalisation de la tâche, Cohérence et cohésion et Adéquation sociolinguistique. Pour les critères Lexique et Morphosyntaxe, le candidat ne peut être identifié ni « Au niveau » ni « Au niveau + »."
+    },
+    {
+      "id": "d15",
+      "category": "grille",
+      "level": "B2",
+      "skill": "PO",
+      "question": "Quelles sont les durées des deux parties de l'épreuve de production orale du DELF B2 ?",
+      "ground_truth": "La production orale du DELF B2 comprend un monologue suivi de 5 à 7 minutes et un exercice en interaction de 10 à 13 minutes."
+    },
+    {
+      "id": "d16",
+      "category": "presentation",
+      "level": "general",
+      "skill": "general",
+      "question": "Quel est le rôle de l'examinateur-correcteur dans le dispositif DELF/DALF ?",
+      "ground_truth": "L'examinateur-correcteur du DELF et du DALF participe à l'évaluation des épreuves. Dans le cadre de la double évaluation, il intervient comme examinateur pour l'épreuve individuelle (production orale) ou comme correcteur pour les épreuves collectives, afin de garantir la fidélité et la validité des évaluations."
+    },
+    {
+      "id": "d17",
+      "category": "methodologie",
+      "level": "general",
+      "skill": "PE",
+      "question": "Le critère lexical peut-il être pénalisé même si le candidat respecte la consigne ? Dans quel cas ?",
+      "ground_truth": "Oui. Quel que soit le niveau, les correcteurs pénalisent le candidat dans le critère lexical si le vocabulaire employé par ailleurs dans la production est trop pauvre et/ou répétitif."
+    },
+    {
+      "id": "d18",
+      "category": "double_correction",
+      "level": "general",
+      "skill": "general",
+      "question": "İki düzeltici arasında hiçbir fark olmadığında harmonizasyon (harmonisation) gerekir mi ve ikinci düzeltici ne yapar?",
+      "ground_truth": "Hayır, iki düzeltici arasında hiçbir fark gözlenmediğinde harmonizasyon yapılmaz. İkinci düzeltici, birinci düzelticininkinden farklı renkte bir kalemle egzersiz notunu görünür bir işaretle onaylar ve nihai notları kapak sayfasına (page de garde) aktarır."
+    }
+  ]
+}

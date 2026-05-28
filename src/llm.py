@@ -54,23 +54,39 @@ _HEALTH_CACHE_TTL_SECONDS = 300.0
 _client = None  # type: ignore[var-annotated]
 
 
-def get_vertex_client():
-    """Ortak Vertex AI Gemini istemcisini döndürür; ilk çağrıda oluşturulur."""
+def get_genai_client():
+    """
+    Ortak google-genai istemcisini döndürür. INFERENCE_BACKEND'e göre
+    Vertex AI (ADC + project + location) veya public Gemini API (api_key)
+    moduna geçer. İlk çağrıda oluşturulup süreç ömrü kadar tutulur.
+    """
     global _client
     if genai is None or HttpOptions is None:
         raise ImportError(
             "google-genai paketi yüklü değil. Lütfen 'pip install google-genai' ile kurun."
         )
     if _client is None:
-        kwargs = {
-            "vertexai": True,
-            "location": settings.GOOGLE_CLOUD_LOCATION,
-            "http_options": HttpOptions(api_version="v1"),
-        }
-        if settings.GOOGLE_CLOUD_PROJECT:
-            kwargs["project"] = settings.GOOGLE_CLOUD_PROJECT
-        _client = genai.Client(**kwargs)
+        backend = settings.INFERENCE_BACKEND
+        if backend == "public_genai":
+            if not settings.GOOGLE_API_KEY:
+                raise RuntimeError(
+                    "INFERENCE_BACKEND='public_genai' için GOOGLE_API_KEY gerekli."
+                )
+            _client = genai.Client(api_key=settings.GOOGLE_API_KEY)
+        else:  # vertex
+            kwargs = {
+                "vertexai": True,
+                "location": settings.GOOGLE_CLOUD_LOCATION,
+                "http_options": HttpOptions(api_version="v1"),
+            }
+            if settings.GOOGLE_CLOUD_PROJECT:
+                kwargs["project"] = settings.GOOGLE_CLOUD_PROJECT
+            _client = genai.Client(**kwargs)
     return _client
+
+
+# Geriye dönük uyumluluk için takma ad — embeddings.py ve diğer modüller bunu kullanır.
+get_vertex_client = get_genai_client
 
 
 # ---------------------------------------------------------------------------
@@ -127,6 +143,7 @@ def generate(
     model: str | None = None,
     temperature: float | None = None,
     response_format: type[BaseModel] | dict | None = None,
+    thinking_budget: int | None = None,
 ) -> str:
     """
     Tek geçişli LLM çağrısı.
@@ -143,6 +160,10 @@ def generate(
         Geçersiz kılma için sıcaklık; varsayılan settings.LLM_TEMPERATURE.
     response_format : Pydantic model | dict | None
         Verilirse Gemini `response_schema` ile yapılandırılmış JSON döner.
+    thinking_budget : int | None
+        Gemini 2.5 "thinking" token bütçesi. `0` = düşünmeyi kapatır (çeviri,
+        skorlama gibi akıl yürütme gerektirmeyen yardımcı çağrılarda ~5-6 sn
+        gecikme kazandırır). `None` (varsayılan) = model varsayılanını korur.
 
     Döner
     -----
@@ -159,6 +180,13 @@ def generate(
     if response_schema is not None:
         config["response_mime_type"] = "application/json"
         config["response_schema"] = response_schema
+
+    if thinking_budget is not None:
+        try:
+            from google.genai.types import ThinkingConfig  # type: ignore[import-not-found]
+            config["thinking_config"] = ThinkingConfig(thinking_budget=thinking_budget)
+        except ImportError:  # pragma: no cover — SDK yoksa thinking ayarı atlanır
+            logger.debug("ThinkingConfig kullanılamıyor; thinking_budget yok sayıldı.")
 
     started = time.perf_counter()
     response = client.models.generate_content(
@@ -183,6 +211,64 @@ def generate(
 
 
 # ---------------------------------------------------------------------------
+# Akış (streaming) üretim
+# ---------------------------------------------------------------------------
+
+def generate_stream(
+    prompt: str,
+    *,
+    system: str | None = None,
+    model: str | None = None,
+    temperature: float | None = None,
+):
+    """
+    Akış (streaming) LLM çağrısı — yanıtı metin parçaları olarak yield eder.
+
+    `generate()` ile aynı Vertex AI / public Gemini arka ucunu kullanır; ancak
+    yanıt parça parça gelir ve yapılandırılmış JSON (response_schema)
+    desteklemez — etkileşimli sohbet için tasarlanmıştır (src/chatbot.py).
+
+    Yeniden deneme (retry) UYGULANMAZ: akış başladıktan sonra yeniden deneme
+    daha önce yield edilen parçaları tekrarlardı. Geçici hatalarda çağıran
+    tarafın (chatbot) istisnayı yakalayıp dostane bir mesaj göstermesi beklenir.
+
+    Yield
+    -----
+    str — modelin yanıtının ardışık metin parçaları.
+    """
+    client = get_vertex_client()
+    config: dict[str, Any] = {
+        "temperature": temperature if temperature is not None else settings.LLM_TEMPERATURE,
+    }
+    if system:
+        config["system_instruction"] = system
+
+    started = time.perf_counter()
+    total_length = 0
+    stream = client.models.generate_content_stream(
+        model=model or settings.GENERATION_MODEL,
+        contents=prompt,
+        config=config,
+    )
+    for chunk in stream:
+        text = chunk.text or ""
+        if text:
+            total_length += len(text)
+            yield text
+
+    elapsed_ms = (time.perf_counter() - started) * 1000
+    logger.info(
+        "LLM akış üretimi tamamlandı",
+        extra={
+            "event": "llm_stream_complete",
+            "model": model or settings.GENERATION_MODEL,
+            "duration_ms": round(elapsed_ms, 1),
+            "response_length": total_length,
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
 # Sağlık kontrolü
 # ---------------------------------------------------------------------------
 
@@ -193,7 +279,10 @@ def is_vertex_available() -> bool:
         return bool(_health_cache["ok"])
     try:
         client = get_vertex_client()
-        next(client.models.list(config={"page_size": 1}), None)
+        # Pager lazily fetches the first page (single HTTP round-trip).
+        # `iter()` + `next()` consumes a single entry without depending on a
+        # version-specific `page_size` config kwarg.
+        next(iter(client.models.list()), None)
         _health_cache.update({"checked_at": now, "ok": True})
         return True
     except Exception as exc:

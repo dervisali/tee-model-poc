@@ -1,0 +1,458 @@
+{
+  "total": 56,
+  "nonempty": 56,
+  "coverage": 1.0,
+  "needs_ocr_pdfs": [],
+  "ocr_unavailable": [],
+  "failures": [],
+  "rows": [
+    {
+      "path": "DALF C1 EXAMINATEUR/DALF C1-PO-Méthodologie-VD.pdf",
+      "ext": ".pdf",
+      "status": "OK",
+      "pages": 2,
+      "chars": 5248,
+      "note": ""
+    },
+    {
+      "path": "DALF C1 EXAMINATEUR/PO C1 _ “Le corps, une préoccupation majeure des sociétés contemporaines”.pdf",
+      "ext": ".pdf",
+      "status": "OK",
+      "pages": 3,
+      "chars": 7347,
+      "note": ""
+    },
+    {
+      "path": "DALF C1 EXAMINATEUR/PO-Veganisme.pdf",
+      "ext": ".pdf",
+      "status": "OK",
+      "pages": 5,
+      "chars": 16669,
+      "note": ""
+    },
+    {
+      "path": "DALF C1 EXAMINATEUR/WhatsApp Image 2025-06-01 at 21.37.31.docx",
+      "ext": ".docx",
+      "status": "OK",
+      "pages": 1,
+      "chars": 3472,
+      "note": ""
+    },
+    {
+      "path": "DALF C1 EXAMINATEUR/WhatsApp Image 2025-06-01 at 21.37.31.jpeg",
+      "ext": ".jpeg",
+      "status": "OK",
+      "pages": 1,
+      "chars": 2835,
+      "note": ""
+    },
+    {
+      "path": "DALF C1 EXAMINATEUR/WhatsApp Image 2025-06-01 at 21.37.35.docx",
+      "ext": ".docx",
+      "status": "OK",
+      "pages": 1,
+      "chars": 3924,
+      "note": ""
+    },
+    {
+      "path": "DALF C1 EXAMINATEUR/WhatsApp Image 2025-06-01 at 21.37.35.jpeg",
+      "ext": ".jpeg",
+      "status": "OK",
+      "pages": 1,
+      "chars": 3540,
+      "note": ""
+    },
+    {
+      "path": "DALF C1 EXAMINATEUR/WhatsApp Image 2025-06-01 at 21.39.12.jpeg",
+      "ext": ".jpeg",
+      "status": "OK",
+      "pages": 1,
+      "chars": 4294,
+      "note": ""
+    },
+    {
+      "path": "DALF C1 EXAMINATEUR/WhatsApp Image 2025-06-01 at 21.39.17.jpeg",
+      "ext": ".jpeg",
+      "status": "OK",
+      "pages": 1,
+      "chars": 694,
+      "note": ""
+    },
+    {
+      "path": "DALF C1 EXAMINATEUR/WhatsApp Image 2025-06-01 at 21.39.47.jpeg",
+      "ext": ".jpeg",
+      "status": "OK",
+      "pages": 1,
+      "chars": 5270,
+      "note": ""
+    },
+    {
+      "path": "DALF C1 EXAMINATEUR/WhatsApp Image 2025-06-01 at 21.39.51 (1).jpeg",
+      "ext": ".jpeg",
+      "status": "OK",
+      "pages": 1,
+      "chars": 1085,
+      "note": ""
+    },
+    {
+      "path": "DALF C1 EXAMINATEUR/WhatsApp Image 2025-06-01 at 21.39.51.jpeg",
+      "ext": ".jpeg",
+      "status": "OK",
+      "pages": 1,
+      "chars": 1085,
+      "note": ""
+    },
+    {
+      "path": "DALF C1 EXAMINATEUR/brouillon du cerveau - Alanur Bagci (1).pdf",
+      "ext": ".pdf",
+      "status": "OK",
+      "pages": 2,
+      "chars": 2015,
+      "note": ""
+    },
+    {
+      "path": "DALF C1 EXAMINATEUR/brouillon du cerveau - Alanur Bagci.pdf",
+      "ext": ".pdf",
+      "status": "OK",
+      "pages": 2,
+      "chars": 2015,
+      "note": ""
+    },
+    {
+      "path": "DALF C1 EXAMINATEUR/dalf-c1sujet-demo-candidat-coll.pdf",
+      "ext": ".pdf",
+      "status": "OK",
+      "pages": 16,
+      "chars": 25009,
+      "note": ""
+    },
+    {
+      "path": "Fransızca Ölçme-Değerlendirme Kriterleri/a1/A1_Descripteurs_PE.pdf",
+      "ext": ".pdf",
+      "status": "OK",
+      "pages": 1,
+      "chars": 3152,
+      "note": ""
+    },
+    {
+      "path": "Fransızca Ölçme-Değerlendirme Kriterleri/a1/A1_Descripteurs_PO.pdf",
+      "ext": ".pdf",
+      "status": "OK",
+      "pages": 1,
+      "chars": 3565,
+      "note": ""
+    },
+    {
+      "path": "Fransızca Ölçme-Değerlendirme Kriterleri/a1/A1_Grille_PE.pdf",
+      "ext": ".pdf",
+      "status": "OK",
+      "pages": 1,
+      "chars": 1999,
+      "note": ""
+    },
+    {
+      "path": "Fransızca Ölçme-Değerlendirme Kriterleri/a1/A1_Grille_PO.pdf",
+      "ext": ".pdf",
+      "status": "OK",
+      "pages": 1,
+      "chars": 1430,
+      "note": ""
+    },
+    {
+      "path": "Fransızca Ölçme-Değerlendirme Kriterleri/a1/A1_stagiaire.pdf",
+      "ext": ".pdf",
+      "status": "OK",
+      "pages": 39,
+      "chars": 9598,
+      "note": ""
+    },
+    {
+      "path": "Fransızca Ölçme-Değerlendirme Kriterleri/a1/PE_A1.pdf",
+      "ext": ".pdf",
+      "status": "OK",
+      "pages": 1,
+      "chars": 3942,
+      "note": ""
+    },
+    {
+      "path": "Fransızca Ölçme-Değerlendirme Kriterleri/a1/PO_A1.pdf",
+      "ext": ".pdf",
+      "status": "OK",
+      "pages": 2,
+      "chars": 4569,
+      "note": ""
+    },
+    {
+      "path": "Fransızca Ölçme-Değerlendirme Kriterleri/a2/A2_Descripteurs_PE.pdf",
+      "ext": ".pdf",
+      "status": "OK",
+      "pages": 1,
+      "chars": 3327,
+      "note": ""
+    },
+    {
+      "path": "Fransızca Ölçme-Değerlendirme Kriterleri/a2/A2_Descripteurs_PO.pdf",
+      "ext": ".pdf",
+      "status": "OK",
+      "pages": 1,
+      "chars": 4147,
+      "note": ""
+    },
+    {
+      "path": "Fransızca Ölçme-Değerlendirme Kriterleri/a2/A2_Grille_PE.pdf",
+      "ext": ".pdf",
+      "status": "OK",
+      "pages": 1,
+      "chars": 1981,
+      "note": ""
+    },
+    {
+      "path": "Fransızca Ölçme-Değerlendirme Kriterleri/a2/A2_Grille_PO.pdf",
+      "ext": ".pdf",
+      "status": "OK",
+      "pages": 1,
+      "chars": 1475,
+      "note": ""
+    },
+    {
+      "path": "Fransızca Ölçme-Değerlendirme Kriterleri/a2/A2_stagiaire.pdf",
+      "ext": ".pdf",
+      "status": "OK",
+      "pages": 39,
+      "chars": 16727,
+      "note": ""
+    },
+    {
+      "path": "Fransızca Ölçme-Değerlendirme Kriterleri/a2/PE_A2.pdf",
+      "ext": ".pdf",
+      "status": "OK",
+      "pages": 3,
+      "chars": 8568,
+      "note": ""
+    },
+    {
+      "path": "Fransızca Ölçme-Değerlendirme Kriterleri/a2/PO_A2.pdf",
+      "ext": ".pdf",
+      "status": "OK",
+      "pages": 1,
+      "chars": 4350,
+      "note": ""
+    },
+    {
+      "path": "Fransızca Ölçme-Değerlendirme Kriterleri/b1/B1_Descripteurs_PE.pdf",
+      "ext": ".pdf",
+      "status": "OK",
+      "pages": 1,
+      "chars": 3625,
+      "note": ""
+    },
+    {
+      "path": "Fransızca Ölçme-Değerlendirme Kriterleri/b1/B1_Descripteurs_PO.pdf",
+      "ext": ".pdf",
+      "status": "OK",
+      "pages": 1,
+      "chars": 5440,
+      "note": ""
+    },
+    {
+      "path": "Fransızca Ölçme-Değerlendirme Kriterleri/b1/B1_Grille_PE.pdf",
+      "ext": ".pdf",
+      "status": "OK",
+      "pages": 1,
+      "chars": 1919,
+      "note": ""
+    },
+    {
+      "path": "Fransızca Ölçme-Değerlendirme Kriterleri/b1/B1_Grille_PO.pdf",
+      "ext": ".pdf",
+      "status": "OK",
+      "pages": 1,
+      "chars": 1491,
+      "note": ""
+    },
+    {
+      "path": "Fransızca Ölçme-Değerlendirme Kriterleri/b1/B1_stagiaire.pdf",
+      "ext": ".pdf",
+      "status": "OK",
+      "pages": 40,
+      "chars": 14552,
+      "note": ""
+    },
+    {
+      "path": "Fransızca Ölçme-Değerlendirme Kriterleri/b1/PE_B1.pdf",
+      "ext": ".pdf",
+      "status": "OK",
+      "pages": 2,
+      "chars": 6797,
+      "note": ""
+    },
+    {
+      "path": "Fransızca Ölçme-Değerlendirme Kriterleri/b1/PO_B1.pdf",
+      "ext": ".pdf",
+      "status": "OK",
+      "pages": 2,
+      "chars": 5008,
+      "note": ""
+    },
+    {
+      "path": "Fransızca Ölçme-Değerlendirme Kriterleri/b2/B2_Descripteurs_PE.pdf",
+      "ext": ".pdf",
+      "status": "OK",
+      "pages": 1,
+      "chars": 3890,
+      "note": ""
+    },
+    {
+      "path": "Fransızca Ölçme-Değerlendirme Kriterleri/b2/B2_Descripteurs_PO.pdf",
+      "ext": ".pdf",
+      "status": "OK",
+      "pages": 1,
+      "chars": 4058,
+      "note": ""
+    },
+    {
+      "path": "Fransızca Ölçme-Değerlendirme Kriterleri/b2/B2_Grille_PE.pdf",
+      "ext": ".pdf",
+      "status": "OK",
+      "pages": 1,
+      "chars": 1920,
+      "note": ""
+    },
+    {
+      "path": "Fransızca Ölçme-Değerlendirme Kriterleri/b2/B2_Grille_PO.pdf",
+      "ext": ".pdf",
+      "status": "OK",
+      "pages": 1,
+      "chars": 1313,
+      "note": ""
+    },
+    {
+      "path": "Fransızca Ölçme-Değerlendirme Kriterleri/b2/B2_stagiaire.pdf",
+      "ext": ".pdf",
+      "status": "OK",
+      "pages": 34,
+      "chars": 17521,
+      "note": ""
+    },
+    {
+      "path": "Fransızca Ölçme-Değerlendirme Kriterleri/b2/PE_B2.pdf",
+      "ext": ".pdf",
+      "status": "OK",
+      "pages": 2,
+      "chars": 6120,
+      "note": ""
+    },
+    {
+      "path": "Fransızca Ölçme-Değerlendirme Kriterleri/b2/PO_B2.pdf",
+      "ext": ".pdf",
+      "status": "OK",
+      "pages": 1,
+      "chars": 4033,
+      "note": ""
+    },
+    {
+      "path": "Fransızca Ölçme-Değerlendirme Kriterleri/general/Descripteurs_CECRL_A1_B2_VF_a_donner.pdf",
+      "ext": ".pdf",
+      "status": "OK",
+      "pages": 37,
+      "chars": 102036,
+      "note": ""
+    },
+    {
+      "path": "Fransızca Ölçme-Değerlendirme Kriterleri/general/Diaporama_rôle_EC_VF.pptx",
+      "ext": ".pptx",
+      "status": "OK",
+      "pages": 23,
+      "chars": 7369,
+      "note": ""
+    },
+    {
+      "path": "Fransızca Ölçme-Değerlendirme Kriterleri/general/Dispositif_DELF-DALF_v2022.pptx",
+      "ext": ".pptx",
+      "status": "OK",
+      "pages": 15,
+      "chars": 5086,
+      "note": ""
+    },
+    {
+      "path": "Fransızca Ölçme-Değerlendirme Kriterleri/general/Echelle globale.pdf",
+      "ext": ".pdf",
+      "status": "OK",
+      "pages": 1,
+      "chars": 3036,
+      "note": ""
+    },
+    {
+      "path": "Fransızca Ölçme-Değerlendirme Kriterleri/general/FEI_presentation_courte.pptx",
+      "ext": ".pptx",
+      "status": "OK",
+      "pages": 7,
+      "chars": 2343,
+      "note": ""
+    },
+    {
+      "path": "Fransızca Ölçme-Değerlendirme Kriterleri/general/Introduction_critères_corriges.docx",
+      "ext": ".docx",
+      "status": "OK",
+      "pages": 1,
+      "chars": 2613,
+      "note": ""
+    },
+    {
+      "path": "Fransızca Ölçme-Değerlendirme Kriterleri/general/Inventaire_ONLINE_full.pdf",
+      "ext": ".pdf",
+      "status": "OK",
+      "pages": 112,
+      "chars": 340531,
+      "note": ""
+    },
+    {
+      "path": "Fransızca Ölçme-Değerlendirme Kriterleri/general/Niveaux_CECRL_PE_V2.pdf",
+      "ext": ".pdf",
+      "status": "OK",
+      "pages": 4,
+      "chars": 1905,
+      "note": ""
+    },
+    {
+      "path": "Fransızca Ölçme-Değerlendirme Kriterleri/general/Portfolio_europeen_des_langues.pdf",
+      "ext": ".pdf",
+      "status": "OK",
+      "pages": 1,
+      "chars": 7804,
+      "note": ""
+    },
+    {
+      "path": "Fransızca Ölçme-Değerlendirme Kriterleri/general/Présentation_copies_atypiques_VF.pptx",
+      "ext": ".pptx",
+      "status": "OK",
+      "pages": 21,
+      "chars": 5865,
+      "note": ""
+    },
+    {
+      "path": "Fransızca Ölçme-Değerlendirme Kriterleri/general/Tableau_epreuves_DD_AS.pdf",
+      "ext": ".pdf",
+      "status": "OK",
+      "pages": 1,
+      "chars": 3743,
+      "note": ""
+    },
+    {
+      "path": "Fransızca Ölçme-Değerlendirme Kriterleri/general/manuel-exacor.pdf",
+      "ext": ".pdf",
+      "status": "OK",
+      "pages": 35,
+      "chars": 56279,
+      "note": ""
+    },
+    {
+      "path": "Fransızca Ölçme-Değerlendirme Kriterleri/general/niveaux_mots_cles.pdf",
+      "ext": ".pdf",
+      "status": "OK",
+      "pages": 2,
+      "chars": 1707,
+      "note": ""
+    }
+  ]
+}

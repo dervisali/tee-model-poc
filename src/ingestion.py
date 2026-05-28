@@ -24,7 +24,10 @@ from pathlib import Path
 
 import chromadb
 
+from src.chunk_metadata import ChunkMetadata
 from src.config import settings
+from src.document_classifier import classify_path
+from src.document_loaders import PageContent, iter_documents
 from src.embeddings import embed_passages, embedding_dimension
 
 
@@ -58,9 +61,9 @@ CHILD_MIN_CHARS = settings.CHUNK_SIZE_CHILD_MIN
 # ---------------------------------------------------------------------------
 
 def _get_child_collection() -> chromadb.Collection:
-    """Aktif child koleksiyonunu döndürür (yoksa oluşturur)."""
-    client = chromadb.PersistentClient(path=str(CHROMA_DIR))
-    return client.get_or_create_collection(
+    """Aktif child koleksiyonunu döndürür (yoksa oluşturur). Paylaşılan istemci."""
+    from src.chroma_client import get_chroma_client
+    return get_chroma_client().get_or_create_collection(
         name=CHILD_COLLECTION_NAME,
         metadata={
             "hnsw:space": "cosine",
@@ -252,51 +255,63 @@ def _split_into_child_chunks(parent_text: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# Kaynak dosya yükleme
+# Kaynak dosya yükleme — Phase 1/2 multi-format DELF korpusu
 # ---------------------------------------------------------------------------
 
-def _load_source_files() -> list[dict]:
+class DocumentLoad:
+    """Yüklenmiş ve sınıflandırılmış tek bir belge."""
+
+    __slots__ = ("metadata", "pages", "full_text")
+
+    def __init__(self, metadata: ChunkMetadata, pages: list[PageContent], full_text: str):
+        self.metadata = metadata
+        self.pages = pages
+        self.full_text = full_text
+
+
+def _load_documents(root: Path | None = None) -> list[DocumentLoad]:
     """
-    Mevzuat ve anonimleştirilmiş tacit transkriptini yükler.
-    Tacit dosyası yoksa, ham transkripten anonimleştirme ile üretir.
+    `root` (default settings.DATA_DIR) altındaki tüm desteklenen dosyaları
+    multi-format loader ile yükler ve path classifier ile sınıflandırır.
+
+    Hatalı veya boş dosyalar atlanır ve log'a yazılır; ingestion akışı
+    kesintisiz devam eder.
     """
     if str(BASE_DIR) not in sys.path:
         sys.path.insert(0, str(BASE_DIR))
-    from src.anonymizer import anonymize_text  # noqa: WPS433
 
-    explicit_path = settings.DATA_DIR / "explicit_mevzuat.txt"
-    raw_tacit_path = settings.DATA_DIR / "tacit_interview_raw.txt"
-    clean_tacit_path = settings.PROCESSED_DIR / "tacit_interview_clean.txt"
+    corpus_root = root or settings.DATA_DIR
+    if not corpus_root.exists():
+        raise FileNotFoundError(f"Korpus dizini bulunamadı: {corpus_root}")
 
-    sources: list[dict] = []
+    out: list[DocumentLoad] = []
+    skipped = 0
+    for result in iter_documents(corpus_root):
+        if result.error:
+            logger.warning("Loader hatası, atlanıyor: %s — %s", result.path, result.error)
+            skipped += 1
+            continue
+        non_empty = [pc for pc in result.pages if pc.text.strip()]
+        if not non_empty:
+            logger.warning("Boş içerik, atlanıyor: %s", result.path)
+            skipped += 1
+            continue
+        meta = classify_path(result.path, root=corpus_root)
+        full_text = "\n\n".join(pc.text for pc in non_empty)
+        out.append(DocumentLoad(metadata=meta, pages=non_empty, full_text=full_text))
 
-    if not explicit_path.exists():
-        raise FileNotFoundError(f"Mevzuat dosyası bulunamadı: {explicit_path}")
-    sources.append({
-        "source": "explicit",
-        "filename": explicit_path.name,
-        "text": explicit_path.read_text(encoding="utf-8"),
-    })
+    high = sum(1 for d in out if d.metadata.classifier_confidence >= 0.8)
+    manual = len(out) - high
+    logger.info(
+        "Belge yükleme: %d başarılı, %d atlandı (high-confidence=%d, manual-review=%d).",
+        len(out), skipped, high, manual,
+    )
+    return out
 
-    if not clean_tacit_path.exists():
-        if not raw_tacit_path.exists():
-            raise FileNotFoundError(f"Ham transkript bulunamadı: {raw_tacit_path}")
-        raw_text = raw_tacit_path.read_text(encoding="utf-8")
-        result = anonymize_text(raw_text)
-        clean_tacit_path.parent.mkdir(parents=True, exist_ok=True)
-        clean_tacit_path.write_text(result["anonymized_text"], encoding="utf-8")
-        logger.info("Transkript anonimleştirildi: %d kayıt maskelendi.", len(result["mask_log"]))
 
-    tacit_text = clean_tacit_path.read_text(encoding="utf-8")
-    if "\n---\n" in tacit_text:
-        tacit_text = tacit_text.split("\n---\n", 1)[1].strip()
-    sources.append({
-        "source": "tacit",
-        "filename": clean_tacit_path.name,
-        "text": tacit_text,
-    })
-
-    return sources
+def _sanitize_id(stem: str) -> str:
+    """Dosya stem'ini parent_id için güvenli karakter setine indirger."""
+    return re.sub(r"[^a-zA-Z0-9_-]", "_", stem)
 
 
 # ---------------------------------------------------------------------------
@@ -324,77 +339,86 @@ def run_ingestion(chunking_strategy: str | None = None) -> dict:
     logger.info("Ingestion chunking stratejisi: %s", strategy)
 
     child_col = _get_child_collection()
-    sources = _load_source_files()
+    documents = _load_documents()
 
     parents: dict = {}
     pending_texts: list[str] = []         # gömülecek metinler (zenginleştirilmiş olabilir)
     pending_ids: list[str] = []
     pending_metas: list[dict] = []
-    explicit_children = 0
-    tacit_children = 0
+    by_doc_type: dict[str, int] = {}
+    by_level: dict[str, int] = {}
 
-    for source_info in sources:
-        stem = Path(source_info["filename"]).stem
-        full_doc = source_info["text"]
-        parent_chunks = parent_chunker(full_doc)
-        logger.info(
-            "%s için %d parent chunk üretildi (strateji=%s).",
-            source_info["source"], len(parent_chunks), strategy,
-        )
+    for doc_load in documents:
+        base_meta = doc_load.metadata
+        safe_stem = _sanitize_id(base_meta.source_filename)
 
-        # Bu kaynağa ait child'ları topla; enrichment kaynak başına yapılır
-        # çünkü full document chunk'ın bağlamı için referanstır.
+        # Bu belgeye ait child'ları topla; enrichment belge başına yapılır,
+        # full_text tüm sayfaların birleştirilmiş halidir.
         source_child_originals: list[str] = []
         source_child_ids: list[str] = []
         source_child_metas: list[dict] = []
 
-        for p_idx, parent_text in enumerate(parent_chunks):
-            parent_id = f"{stem}_p{p_idx}"
-            parents[parent_id] = {
-                "text": parent_text,
-                "source": source_info["source"],
-                "filename": source_info["filename"],
-                "parent_index": p_idx,
-                "char_count": len(parent_text),
-            }
+        parent_idx = 0
+        for pc in doc_load.pages:
+            parent_chunks = parent_chunker(pc.text)
+            for parent_text in parent_chunks:
+                parent_id = f"{safe_stem}_par{parent_idx}"
+                parents[parent_id] = {
+                    "text": parent_text,
+                    "source_file": base_meta.source_file,
+                    "filename": base_meta.source_filename,
+                    "page": pc.page,
+                    "level": base_meta.level,
+                    "skill": base_meta.skill,
+                    "doc_type": base_meta.doc_type,
+                    "parent_index": parent_idx,
+                    "char_count": len(parent_text),
+                }
 
-            for c_idx, child_text in enumerate(_split_into_child_chunks(parent_text)):
-                child_id = f"{stem}_p{p_idx}_c{c_idx}"
-                source_child_originals.append(child_text)
-                source_child_ids.append(child_id)
-                source_child_metas.append({
-                    "source": source_info["source"],
-                    "filename": source_info["filename"],
-                    "child_index": c_idx,
-                    "parent_id": parent_id,
-                    "char_count": len(child_text),
-                    "chunking_strategy": strategy,
-                    "original_text": child_text,  # UI gösterimi için
-                    "enriched": False,
-                })
-                if source_info["source"] == "explicit":
-                    explicit_children += 1
-                else:
-                    tacit_children += 1
+                for c_idx, child_text in enumerate(_split_into_child_chunks(parent_text)):
+                    child_id = f"{parent_id}_c{c_idx}"
+                    source_child_originals.append(child_text)
+                    source_child_ids.append(child_id)
+
+                    meta_dict = base_meta.model_dump()
+                    meta_dict["page"] = pc.page  # bu sayfanın gerçek numarası
+                    meta_dict.update({
+                        "child_index": c_idx,
+                        "parent_id": parent_id,
+                        "char_count": len(child_text),
+                        "chunking_strategy": strategy,
+                        "original_text": child_text,
+                        "enriched": False,
+                    })
+                    source_child_metas.append(meta_dict)
+                parent_idx += 1
+
+        by_doc_type[base_meta.doc_type] = by_doc_type.get(base_meta.doc_type, 0) + len(source_child_originals)
+        by_level[base_meta.level] = by_level.get(base_meta.level, 0) + len(source_child_originals)
+        logger.info(
+            "%s: %d parent, %d child (level=%s, skill=%s, doc_type=%s)",
+            base_meta.source_filename, parent_idx, len(source_child_originals),
+            base_meta.level, base_meta.skill, base_meta.doc_type,
+        )
 
         # Phase 1.2.A — Anthropic Contextual Retrieval
         if settings.ENABLE_CONTEXTUAL_ENRICHMENT and source_child_originals:
             from src.contextual_enrichment import enrich_chunks
             logger.info(
                 "Contextual enrichment başlıyor: %s, %d chunk",
-                stem, len(source_child_originals),
+                safe_stem, len(source_child_originals),
             )
             enriched_texts, stats = enrich_chunks(
-                full_doc,
+                doc_load.full_text,
                 source_child_originals,
-                document_id=stem,
+                document_id=safe_stem,
             )
             logger.info(
                 "Enrichment bitti: %s — hits=%d miss=%d (%.1fs)",
-                stem, stats["hits"], stats["misses"], stats["total_seconds"],
+                safe_stem, stats["hits"], stats["misses"], stats["total_seconds"],
             )
-            for meta in source_child_metas:
-                meta["enriched"] = True
+            for meta_dict in source_child_metas:
+                meta_dict["enriched"] = True
             pending_texts.extend(enriched_texts)
         else:
             pending_texts.extend(source_child_originals)
@@ -422,22 +446,27 @@ def run_ingestion(chunking_strategy: str | None = None) -> dict:
     rebuild_bm25_index_from_collection()
 
     summary = {
-        "total_chunks": explicit_children + tacit_children,
-        "explicit_chunks": explicit_children,
-        "tacit_chunks": tacit_children,
+        "total_chunks": len(pending_ids),
+        "total_documents": len(documents),
+        "by_doc_type": by_doc_type,
+        "by_level": by_level,
         "collection_size": child_col.count(),
+        # Phase 8'e kadar app.py legacy displayleri için 0 placeholder.
+        "explicit_chunks": 0,
+        "tacit_chunks": 0,
     }
     logger.info(
-        "Ingestion özeti: toplam=%d explicit=%d tacit=%d db=%d",
-        summary["total_chunks"], summary["explicit_chunks"],
-        summary["tacit_chunks"], summary["collection_size"],
+        "Ingestion özeti: belge=%d chunk=%d db=%d by_type=%s",
+        summary["total_documents"], summary["total_chunks"],
+        summary["collection_size"], summary["by_doc_type"],
     )
     return summary
 
 
 def clear_and_reingest() -> dict:
     """tee_children koleksiyonunu, parents.json'u ve BM25 indeksini silip baştan ingest eder."""
-    chroma_client = chromadb.PersistentClient(path=str(CHROMA_DIR))
+    from src.chroma_client import get_chroma_client
+    chroma_client = get_chroma_client()
     try:
         chroma_client.delete_collection(CHILD_COLLECTION_NAME)
     except Exception as exc:

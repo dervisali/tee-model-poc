@@ -26,12 +26,17 @@ from __future__ import annotations
 import logging
 import pickle
 import re
+import time
+import unicodedata
+from concurrent.futures import ThreadPoolExecutor
+from functools import lru_cache
 from pathlib import Path
 
 from rank_bm25 import BM25Okapi
 
 from src.config import settings
 from src.embeddings import embed_query
+from src.metadata_filter import matches_metadata, merge_where
 
 
 logger = logging.getLogger(__name__)
@@ -40,22 +45,107 @@ logger = logging.getLogger(__name__)
 BM25_INDEX_PATH = settings.CHROMA_DIR / "bm25_index.pkl"
 
 
+def _file_cache_key(path: Path) -> tuple[int, int]:
+    """Cheap freshness key for file-backed caches."""
+    try:
+        stat = path.stat()
+    except FileNotFoundError:
+        return (0, 0)
+    return (stat.st_mtime_ns, stat.st_size)
+
+
 # ---------------------------------------------------------------------------
-# Türkçe odaklı basit tokenizasyon
+# Dile-duyarlı tokenizasyon
 # ---------------------------------------------------------------------------
+# Türkçe yol:   küçük harf + Türkçe karakter regex'i, stemmer YOK.
+# Fransızca yol: lowercase + apostrof bölme (élision) + stop-words filtresi +
+#                Snowball French stemmer.
+#
+# Aktif dil settings.CORPUS_PRIMARY_LANGUAGE üzerinden gelir; _tokenize'a açıkça da
+# verilebilir. Tokenizer indeks inşası ve sorgu zamanı arasında SİMETRİK
+# olmalıdır; aksi halde BM25 yanıltıcı sonuçlar verir.
 
-_TOKEN_RE = re.compile(r"[\wçğıöşüÇĞİÖŞÜ]+", re.UNICODE)
+_TURKISH_TOKEN_RE = re.compile(r"[\wçğıöşüÇĞİÖŞÜ]+", re.UNICODE)
+
+# Fransızca harfler + rakamlar; aksanlı karakterler korunur (Snowball aksanı bekler).
+_FRENCH_TOKEN_RE = re.compile(r"[a-zàâäéèêëïîôöùûüœæç0-9]+", re.IGNORECASE)
+# Düz ve eğri apostrof — élision sınırı.
+_APOSTROPHE_RE = re.compile(r"[’']")
+
+# Sık karşılaşılan Fransızca fonksiyonel sözcükler. BM25 için sinyalsizdir.
+_FRENCH_STOPWORDS: frozenset[str] = frozenset({
+    # Tanımlıklar
+    "le", "la", "les", "un", "une", "des", "du", "de", "d",
+    "au", "aux", "à",
+    # Zamirler
+    "je", "j", "tu", "il", "elle", "on", "nous", "vous", "ils", "elles",
+    "me", "m", "te", "se", "s", "lui", "leur", "leurs",
+    "ce", "c", "ça", "cet", "cette", "ces",
+    "qui", "que", "qu", "quoi", "dont", "où",
+    "y", "en",
+    # İyelik
+    "mon", "ma", "mes", "ton", "ta", "tes", "son", "sa", "ses",
+    "notre", "nos", "votre", "vos",
+    # Bağlaçlar / olumsuzlama
+    "et", "ou", "ni", "mais", "donc", "or", "car",
+    "si", "ne", "n", "pas", "plus", "moins",
+    # Edatlar
+    "pour", "par", "sur", "sous", "dans", "avec", "sans", "vers",
+    "entre", "chez", "depuis", "pendant",
+    # Yardımcı fiil sık formları
+    "est", "sont", "était", "étaient", "sera", "seront", "été", "être",
+    "a", "ont", "avait", "avaient", "aura", "auront", "avoir", "eu",
+    "fait", "font", "faire",
+    # Niceleyiciler / işaret sözcükleri
+    "tout", "tous", "toute", "toutes", "même", "autre", "autres",
+    "très", "trop", "comme", "comment", "quand",
+})
 
 
-def _tokenize(text: str) -> list[str]:
+@lru_cache(maxsize=1)
+def _get_french_stemmer():
+    """Snowball French stemmer'ı tek seferlik yükler. nltk veri indirme gerektirmez."""
+    from nltk.stem.snowball import FrenchStemmer  # type: ignore[import-untyped]
+    return FrenchStemmer()
+
+
+def _tokenize_tr(text: str) -> list[str]:
+    """Türkçe: küçük harf + Türkçe karakter farkındalığı. Stemmer yok."""
+    return [t.lower() for t in _TURKISH_TOKEN_RE.findall(text)]
+
+
+def _tokenize_fr(text: str) -> list[str]:
     """
-    Hafif Türkçe tokenizasyon: küçük harf + Türkçe karakter farkındalığı.
-
-    Stemmer KULLANILMAZ (gerek yok): e5 dense yolu zaten anlamsal benzerliği
-    yakalar; BM25'in görevi birebir terim eşleşmesini güçlendirmektir. Ek
-    morfolojik analiz hatası eklemek doğruluğu azaltır.
+    Fransızca: élision için apostrofu boşluğa çevir, küçük harfle tokenize et,
+    stop-word'leri filtrele ve Snowball French stemmer uygula. Aksanlar korunur.
     """
-    return [t.lower() for t in _TOKEN_RE.findall(text)]
+    lowered = _APOSTROPHE_RE.sub(" ", text.lower())
+    raw_tokens = _FRENCH_TOKEN_RE.findall(lowered)
+    stemmer = _get_french_stemmer()
+    out: list[str] = []
+    for tok in raw_tokens:
+        if len(tok) <= 1:
+            continue
+        if tok in _FRENCH_STOPWORDS:
+            continue
+        out.append(stemmer.stem(tok))
+    return out
+
+
+def _tokenize(text: str, language: str | None = None) -> list[str]:
+    """Aktif dilin tokenizer'ına yönlendirir. `language` None ise settings'ten alır."""
+    lang = (language or settings.CORPUS_PRIMARY_LANGUAGE).lower()
+    if lang == "fr":
+        return _tokenize_fr(text)
+    return _tokenize_tr(text)
+
+
+def _strip_accents(s: str) -> str:
+    """NFKD normalize + birleştirici işaret stripping. Yardımcı (şu an iç kullanım)."""
+    return "".join(
+        c for c in unicodedata.normalize("NFKD", s)
+        if not unicodedata.combining(c)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -89,14 +179,22 @@ class BM25Index:
         query: str,
         top_k: int,
         source_filter: str | None = None,
+        language: str | None = None,
+        metadata_filter: dict | None = None,
     ) -> list[tuple[str, float, str, dict]]:
         """
         Sorgu için en alakalı top_k kaydı (id, score, document, metadata)
         olarak döndürür. Source filtresi metadata üzerinden uygulanır.
+
+        `metadata_filter` verilirse (ChromaDB `where` biçimi) Python tarafında
+        level/skill/doc_type vb. üzerinden ek olarak uygulanır.
+
+        `language` None ise settings.CORPUS_PRIMARY_LANGUAGE; tokenizer indeks ile
+        simetrik olmalıdır.
         """
         if self.bm25 is None or not self.ids:
             return []
-        query_tokens = _tokenize(query)
+        query_tokens = _tokenize(query, language=language)
         if not query_tokens:
             return []
 
@@ -106,6 +204,8 @@ class BM25Index:
         for idx, score in enumerate(scores):
             meta = self.metadatas[idx]
             if source_filter and meta.get("source") != source_filter:
+                continue
+            if metadata_filter and not matches_metadata(meta, metadata_filter):
                 continue
             ranked.append((self.ids[idx], float(score), self.documents[idx], meta))
 
@@ -129,7 +229,13 @@ class BM25Index:
         logger.info("BM25 indeksi kaydedildi: %s (n=%d)", path, len(self.ids))
 
     @classmethod
-    def load(cls, path: Path = BM25_INDEX_PATH) -> "BM25Index | None":
+    @lru_cache(maxsize=1)
+    def load(
+        cls,
+        path: Path = BM25_INDEX_PATH,
+        cache_key: tuple[int, int] | None = None,
+    ) -> "BM25Index | None":
+        _ = cache_key
         if not path.exists():
             return None
         try:
@@ -150,18 +256,17 @@ class BM25Index:
 # İndeks inşası — ingestion'dan çağrılır
 # ---------------------------------------------------------------------------
 
-def rebuild_bm25_index_from_collection() -> BM25Index | None:
+def rebuild_bm25_index_from_collection(language: str | None = None) -> BM25Index | None:
     """
     Aktif tee_children koleksiyonundan BM25 indeksini yeniden kurar.
     Ingestion'dan sonra çağrılmalıdır.
+
+    `language` None ise settings.CORPUS_PRIMARY_LANGUAGE kullanılır. İndeks pickle'ı
+    dile pinlenmez (search ile aynı setting'i okuyacak); ancak log'a yazılır.
     """
-    import chromadb  # local to avoid circular ingestion import at module load
-    client = chromadb.PersistentClient(path=str(settings.CHROMA_DIR))
+    from src.chroma_client import get_child_collection
     try:
-        col = client.get_or_create_collection(
-            name=settings.CHILD_COLLECTION_NAME,
-            metadata={"hnsw:space": "cosine"},
-        )
+        col = get_child_collection()
     except Exception as exc:
         logger.error("BM25 inşa: koleksiyon alınamadı: %s", exc)
         return None
@@ -170,15 +275,20 @@ def rebuild_bm25_index_from_collection() -> BM25Index | None:
         logger.warning("BM25 inşa: koleksiyon boş, indeks atlandı.")
         return None
 
+    active_language = (language or settings.CORPUS_PRIMARY_LANGUAGE).lower()
     data = col.get(include=["documents", "metadatas"])
     ids = data["ids"]
     documents = data["documents"]
     metadatas = data["metadatas"]
-    tokens = [_tokenize(doc) for doc in documents]
+    tokens = [_tokenize(doc, language=active_language) for doc in documents]
 
     index = BM25Index(ids=ids, tokens=tokens, documents=documents, metadatas=metadatas)
     index.save()
-    logger.info("BM25 indeksi inşa edildi: %d child.", len(ids))
+    try:
+        BM25Index.load.cache_clear()
+    except AttributeError:
+        BM25Index.load.__func__.cache_clear()
+    logger.info("BM25 indeksi inşa edildi: %d child, language=%s.", len(ids), active_language)
     return index
 
 
@@ -190,19 +300,20 @@ def _dense_search_children(
     query: str,
     top_k: int,
     source_filter: str | None,
+    metadata_filter: dict | None = None,
 ) -> list[tuple[str, float, str, dict]]:
     """ChromaDB üzerinden dense sıralama; (id, distance, doc, meta) listesi döner."""
-    import chromadb
-    client = chromadb.PersistentClient(path=str(settings.CHROMA_DIR))
-    col = client.get_or_create_collection(
-        name=settings.CHILD_COLLECTION_NAME,
-        metadata={"hnsw:space": "cosine"},
-    )
+    from src.chroma_client import get_child_collection
+    started = time.perf_counter()
+    col = get_child_collection()
     if col.count() == 0:
         return []
 
+    embed_started = time.perf_counter()
     qvec = embed_query(query)
-    where = {"source": source_filter} if source_filter else None
+    embed_ms = (time.perf_counter() - embed_started) * 1000
+    source_where = {"source": source_filter} if source_filter else None
+    where = merge_where(source_where, metadata_filter)
     kwargs = {
         "query_embeddings": [qvec],
         "n_results": min(top_k, col.count()),
@@ -211,13 +322,27 @@ def _dense_search_children(
     if where:
         kwargs["where"] = where
 
+    chroma_started = time.perf_counter()
     results = col.query(**kwargs)
+    chroma_ms = (time.perf_counter() - chroma_started) * 1000
     ids = results.get("ids", [[]])[0]
     docs = results.get("documents", [[]])[0]
     metas = results.get("metadatas", [[]])[0]
     dists = results.get("distances", [[]])[0]
 
-    return [(i, float(d), doc, meta) for i, d, doc, meta in zip(ids, dists, docs, metas)]
+    output = [(i, float(d), doc, meta) for i, d, doc, meta in zip(ids, dists, docs, metas)]
+    logger.info(
+        "Dense child search tamamlandı",
+        extra={
+            "event": "dense_child_search_complete",
+            "top_k": top_k,
+            "results": len(output),
+            "duration_ms": round((time.perf_counter() - started) * 1000, 1),
+            "embedding_ms": round(embed_ms, 1),
+            "chroma_query_ms": round(chroma_ms, 1),
+        },
+    )
+    return output
 
 
 # ---------------------------------------------------------------------------
@@ -261,6 +386,9 @@ def hybrid_search_children(
     search_mode: str = "hybrid",
     alpha: float | None = None,
     over_fetch: int = 3,
+    bm25_query: str | None = None,
+    bm25_query_future=None,
+    metadata_filter: dict | None = None,
 ) -> list[dict]:
     """
     BM25 + dense hibrit arama; child seviyesinde sıralı sonuç döndürür.
@@ -269,25 +397,82 @@ def hybrid_search_children(
                   "sparse" : yalnızca BM25
                   "hybrid" : füzyon (alpha None ise RRF, değilse ağırlıklı)
 
+    bm25_query : Cross-lingual çeviri varyantı. None ise BM25 yolu da `query`
+                 ile çalışır. Türkçe sorgu + Fransızca korpus durumunda
+                 retrieve_context burayı çeviri ile besler; dense yine
+                 orijinal sorgu üzerinden gider (multilingual embedding).
+    bm25_query_future : `.result()` ile çeviri dizesini döndüren bir Future
+                 (concurrent.futures). Verilirse `bm25_query`/`query` yerine
+                 BM25 araması ANINDA çözülür — çeviri dense retrieval ile
+                 örtüşsün diye (Finding #3). Çözüm hatasında orijinal sorguya düşer.
+
     Döner — her öğe: {id, document, metadata, score, dense_distance, bm25_score}
     """
     fetch_k = top_k * over_fetch
 
+    def _resolve_sparse_query() -> str:
+        """BM25 sorgusunu çözer; future varsa onu bekler (dense ile örtüşmüştür)."""
+        if bm25_query_future is not None:
+            try:
+                resolved = bm25_query_future.result()
+                if resolved:
+                    return resolved
+            except Exception as exc:  # noqa: BLE001 — çeviri hatası retrieval'ı kırmamalı
+                logger.warning("Çeviri future çözülemedi; orijinal sorgu kullanılıyor: %s", exc)
+            return query
+        return bm25_query if bm25_query is not None else query
+
     dense_results = []
     bm25_results: list[tuple[str, float, str, dict]] = []
+    dense_ms = 0.0
+    bm25_load_ms = 0.0
+    bm25_search_ms = 0.0
 
-    if search_mode in ("dense", "hybrid"):
-        dense_results = _dense_search_children(query, fetch_k, source_filter)
-
-    if search_mode in ("sparse", "hybrid"):
-        bm25_index = BM25Index.load()
+    if search_mode == "hybrid":
+        # Run dense embedding concurrently with BM25 index load (independent I/O).
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            dense_started = time.perf_counter()
+            dense_future = executor.submit(
+                _dense_search_children, query, fetch_k, source_filter, metadata_filter
+            )
+            bm25_load_started = time.perf_counter()
+            bm25_index = BM25Index.load(cache_key=_file_cache_key(BM25_INDEX_PATH))
+            bm25_load_ms = (time.perf_counter() - bm25_load_started) * 1000
+            dense_results = dense_future.result()
+            dense_ms = (time.perf_counter() - dense_started) * 1000
         if bm25_index is None:
             logger.warning("BM25 indeksi yok; sparse atlanıyor. Ingestion'ı yeniden çalıştırın.")
         else:
-            bm25_results = bm25_index.search(query, fetch_k, source_filter=source_filter)
+            # Çeviri future'ı burada çözülür — dense retrieval bittiğinden çeviri
+            # genelde hazırdır; örtüşme sayesinde kritik yola gecikme eklemez.
+            sparse_query = _resolve_sparse_query()
+            bm25_search_started = time.perf_counter()
+            bm25_results = bm25_index.search(
+                sparse_query, fetch_k, source_filter=source_filter,
+                metadata_filter=metadata_filter,
+            )
+            bm25_search_ms = (time.perf_counter() - bm25_search_started) * 1000
+    elif search_mode == "dense":
+        dense_started = time.perf_counter()
+        dense_results = _dense_search_children(query, fetch_k, source_filter, metadata_filter)
+        dense_ms = (time.perf_counter() - dense_started) * 1000
+    elif search_mode == "sparse":
+        bm25_load_started = time.perf_counter()
+        bm25_index = BM25Index.load(cache_key=_file_cache_key(BM25_INDEX_PATH))
+        bm25_load_ms = (time.perf_counter() - bm25_load_started) * 1000
+        if bm25_index is None:
+            logger.warning("BM25 indeksi yok; sparse atlanıyor. Ingestion'ı yeniden çalıştırın.")
+        else:
+            sparse_query = _resolve_sparse_query()
+            bm25_search_started = time.perf_counter()
+            bm25_results = bm25_index.search(
+                sparse_query, fetch_k, source_filter=source_filter,
+                metadata_filter=metadata_filter,
+            )
+            bm25_search_ms = (time.perf_counter() - bm25_search_started) * 1000
 
     if search_mode == "dense":
-        return [
+        output = [
             {
                 "id": cid,
                 "document": doc,
@@ -298,9 +483,22 @@ def hybrid_search_children(
             }
             for cid, dist, doc, meta in dense_results[:top_k]
         ]
+        logger.info(
+            "Hibrit arama tamamlandı",
+            extra={
+                "event": "hybrid_search_complete",
+                "search_mode": search_mode,
+                "alpha": alpha,
+                "dense_n": len(dense_results),
+                "sparse_n": 0,
+                "fused_n": len(output),
+                "dense_ms": round(dense_ms, 1),
+            },
+        )
+        return output
 
     if search_mode == "sparse":
-        return [
+        output = [
             {
                 "id": cid,
                 "document": doc,
@@ -311,6 +509,20 @@ def hybrid_search_children(
             }
             for cid, score, doc, meta in bm25_results[:top_k]
         ]
+        logger.info(
+            "Hibrit arama tamamlandı",
+            extra={
+                "event": "hybrid_search_complete",
+                "search_mode": search_mode,
+                "alpha": alpha,
+                "dense_n": 0,
+                "sparse_n": len(bm25_results),
+                "fused_n": len(output),
+                "bm25_load_ms": round(bm25_load_ms, 1),
+                "bm25_search_ms": round(bm25_search_ms, 1),
+            },
+        )
+        return output
 
     # --- hybrid füzyon ----------------------------------------------------
 
@@ -358,6 +570,9 @@ def hybrid_search_children(
             "dense_n": len(dense_results),
             "sparse_n": len(bm25_results),
             "fused_n": len(output),
+            "dense_ms": round(dense_ms, 1),
+            "bm25_load_ms": round(bm25_load_ms, 1),
+            "bm25_search_ms": round(bm25_search_ms, 1),
         },
     )
     return output

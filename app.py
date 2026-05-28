@@ -1,7 +1,7 @@
 """
 TEE-Model — Streamlit Uygulaması
 
-Maaş mutemedi onboarding eğitimi için yapay zeka destekli içerik üretimi.
+DELF/DALF sınav düzeltici eğitimi için yapay zeka destekli içerik üretimi.
 Veri yükleme, süreç haritası, hata kartları, terim sözlüğü, simülasyon
 ve uzman onay panelini tek arayüzde sunar.
 """
@@ -11,6 +11,7 @@ import sys
 import logging
 
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 
 # Ensure src/ is importable when run from project root
@@ -18,7 +19,8 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from src.config import settings  # noqa: E402
 from src.logging_config import configure_logging  # noqa: E402
-from src.job_queue import submit_job, wait_for_job, queue_size  # noqa: E402
+from src.job_queue import submit_job, wait_for_job, queue_size, get_status  # noqa: E402
+from src.chatbot import chat_stream, MAX_TURNS, validate_citations  # noqa: E402
 
 configure_logging()
 logger = logging.getLogger(__name__)
@@ -48,7 +50,7 @@ def _run_via_queue(label: str, fn, *args, **kwargs):
 # ---------------------------------------------------------------------------
 
 st.set_page_config(
-    page_title="TEE-Model — Maaş Mutemedi Eğitim Sistemi",
+    page_title="TEE-Model — DELF/DALF Eğitim Sistemi",
     page_icon="🏛️",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -111,6 +113,7 @@ st.markdown(
     .confidence-banner.green  { background: #d4edda; border-left: 5px solid #27ae60; color: #155724; }
     .confidence-banner.yellow { background: #fff3cd; border-left: 5px solid #f1c40f; color: #856404; }
     .confidence-banner.red    { background: #f8d7da; border-left: 5px solid #e74c3c; color: #721c24; }
+    .confidence-banner.pending { background: #eef2f7; border-left: 5px solid #7f8c8d; color: #2c3e50; }
     .confidence-meta { font-size: 0.82rem; opacity: 0.85; }
     </style>
     """,
@@ -120,6 +123,28 @@ st.markdown(
 
 def _render_confidence_banner(content: dict) -> None:
     """Üretilen içerikteki _confidence rozetini Tab 4'te render eder."""
+    if content.get("_confidence_status") == "pending":
+        st.markdown(
+            """<div class="confidence-banner pending">
+            <b>🛡️ Güven Skoru Hesaplanıyor</b> &nbsp;·&nbsp;
+            İçerik görüntülenebilir; kaynak destek kontrolü arka planda devam ediyor.
+            <span class="confidence-meta"> &nbsp;|&nbsp; Uzman onayı öncesi rozetin tamamlanmasını bekleyin.</span>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+        return
+
+    if content.get("_confidence_status") == "error":
+        st.markdown(
+            f"""<div class="confidence-banner yellow">
+            <b>🛡️ Güven Skoru Tamamlanamadı</b> &nbsp;·&nbsp;
+            Manuel inceleme önerilir.
+            <span class="confidence-meta"> &nbsp;|&nbsp; Hata: <b>{content.get('_confidence_error', 'bilinmiyor')}</b></span>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+        return
+
     score = content.get("_confidence") if isinstance(content, dict) else None
     if not score or score.get("hata"):
         return
@@ -138,7 +163,17 @@ def _render_confidence_banner(content: dict) -> None:
     extra = ""
     if unsupported:
         items = "".join(f"<li>{u}</li>" for u in unsupported[:5])
-        extra = f"<details><summary>Desteklenmeyen iddialar ({len(unsupported)})</summary><ul>{items}</ul></details>"
+        source_hint = ""
+        if color in ("yellow", "red"):
+            source_hint = (
+                "<p style='margin-top:0.4rem;font-size:0.82rem;'>"
+                "💡 Desteklenmeyen iddiaların kaynak belgelerini doğrulamak için "
+                "<b>Veritabanı Gezgini</b> sekmesini kullanın.</p>"
+            )
+        extra = (
+            f"<details><summary>Desteklenmeyen iddialar ({len(unsupported)})</summary>"
+            f"<ul>{items}</ul>{source_hint}</details>"
+        )
     st.markdown(
         f"""<div class="confidence-banner {color}">
         <b>🛡️ {label}</b> &nbsp;·&nbsp;
@@ -150,6 +185,112 @@ def _render_confidence_banner(content: dict) -> None:
         unsafe_allow_html=True,
     )
 
+
+def _strip_process_map_confidence_payload(result: dict) -> tuple[dict, list[dict], str | None]:
+    """Remove bulky private confidence payload before storing in session state."""
+    clean = dict(result)
+    chunks = clean.pop("_confidence_source_chunks", [])
+    cache_key = clean.pop("_process_map_cache_key", None)
+    return clean, chunks, cache_key
+
+
+def _start_process_map_confidence_job(result: dict) -> dict:
+    """Queue deferred confidence scoring for a process map result."""
+    clean, chunks, cache_key = _strip_process_map_confidence_payload(result)
+    if clean.get("_confidence_status") != "pending" or not chunks:
+        return clean
+
+    from src.generators import score_process_map_confidence
+
+    job_id = submit_job(score_process_map_confidence, clean, chunks, cache_key)
+    clean["_confidence_job_id"] = job_id
+    st.session_state["process_map_confidence_job_id"] = job_id
+    logger.info(
+        "Process map confidence job kuyruğa alındı",
+        extra={"event": "process_map_confidence_job_queued", "job_id": job_id},
+    )
+    return clean
+
+
+def _poll_process_map_confidence_job() -> None:
+    """Patch process-map confidence into session state when the background job finishes."""
+    job_id = st.session_state.get("process_map_confidence_job_id")
+    pm = st.session_state.get("process_map")
+    if not job_id or not isinstance(pm, dict):
+        return
+
+    status = get_status(job_id)
+    if status["status"] == "done" and isinstance(status.get("result"), dict):
+        scored = dict(status["result"])
+        scored.pop("_confidence_job_id", None)
+        st.session_state["process_map"] = scored
+        st.session_state["process_map_confidence_job_id"] = None
+        st.rerun()
+    if status["status"] == "error":
+        pm["_confidence_status"] = "error"
+        pm["_confidence_error"] = status.get("error") or "bilinmeyen hata"
+        st.session_state["process_map_confidence_job_id"] = None
+        st.rerun()
+
+
+def _strip_error_cards_confidence_payload(result: dict) -> tuple[dict, list[dict]]:
+    """Remove bulky private confidence payload before storing in session state."""
+    clean = dict(result)
+    chunks = clean.pop("_confidence_source_chunks", [])
+    clean.pop("_confidence_content_type", None)
+    return clean, chunks
+
+
+def _start_error_cards_confidence_job(result: dict) -> dict:
+    """Queue deferred confidence scoring for an error_cards result."""
+    clean, chunks = _strip_error_cards_confidence_payload(result)
+    if clean.get("_confidence_status") != "pending" or not chunks:
+        return clean
+
+    from src.generators import score_error_cards_confidence
+
+    job_id = submit_job(score_error_cards_confidence, clean, chunks)
+    clean["_confidence_job_id"] = job_id
+    st.session_state["error_cards_confidence_job_id"] = job_id
+    logger.info(
+        "Error cards confidence job kuyruğa alındı",
+        extra={"event": "error_cards_confidence_job_queued", "job_id": job_id},
+    )
+    return clean
+
+
+def _poll_error_cards_confidence_job() -> None:
+    """Patch error_cards confidence into session state when the background job finishes."""
+    job_id = st.session_state.get("error_cards_confidence_job_id")
+    ec = st.session_state.get("error_cards")
+    if not job_id or not isinstance(ec, dict):
+        return
+
+    status = get_status(job_id)
+    if status["status"] == "done" and isinstance(status.get("result"), dict):
+        scored = dict(status["result"])
+        scored.pop("_confidence_job_id", None)
+        st.session_state["error_cards"] = scored
+        st.session_state["error_cards_confidence_job_id"] = None
+        st.rerun()
+    if status["status"] == "error":
+        ec["_confidence_status"] = "error"
+        ec["_confidence_error"] = status.get("error") or "bilinmeyen hata"
+        st.session_state["error_cards_confidence_job_id"] = None
+        st.rerun()
+
+
+def _schedule_confidence_autorefresh() -> None:
+    """Ask the browser to refresh while deferred confidence scoring is pending."""
+    components.html(
+        """
+        <script>
+        setTimeout(() => window.parent.location.reload(), 3000);
+        </script>
+        """,
+        height=0,
+    )
+
 # ---------------------------------------------------------------------------
 # Session state initialisation
 # ---------------------------------------------------------------------------
@@ -158,7 +299,9 @@ _DEFAULTS = {
     "ingestion_summary": None,
     "mask_log": None,
     "process_map": None,
+    "process_map_confidence_job_id": None,
     "error_cards": None,
+    "error_cards_confidence_job_id": None,
     "glossary": None,
     "simulation": None,
     "sim_selected": None,
@@ -173,6 +316,13 @@ _DEFAULTS = {
     # Prompt optimizer
     "optimizer_results": None,
     "optimizer_generator": None,
+    # Phase 8 — generated output language (TR by default for Turkish examiners).
+    "output_language": settings.OUTPUT_LANGUAGE,
+    # Tab 7 — chatbot conversation state.
+    # chat_history: [{"role": "user"|"assistant", "content": str, "sources": list}]
+    "chat_history": [],
+    "chat_turns": 0,
+    "chat_inject": None,   # set by example-prompt buttons; consumed once on next rerun
 }
 
 for key, val in _DEFAULTS.items():
@@ -183,9 +333,22 @@ for key, val in _DEFAULTS.items():
 # Header
 # ---------------------------------------------------------------------------
 
+# Sidebar — output language toggle (Phase 8).
+with st.sidebar:
+    st.markdown("### Çıktı Dili / Langue de sortie")
+    lang_choice = st.radio(
+        "Üretici dili",
+        options=["tr", "fr"],
+        format_func=lambda v: "Türkçe (TR)" if v == "tr" else "Français (FR)",
+        index=0 if st.session_state.get("output_language", "tr") == "tr" else 1,
+        key="output_language_radio",
+        help="Süreç haritası / Hata kartları / Terim sözlüğü / Simülasyon çıktısının dili. Retrieval kaynak korpusu (FR) her durumda aynıdır.",
+    )
+    st.session_state["output_language"] = lang_choice
+
 st.title("🏛️ TEE-Model — Tacit-Explicit Entegre Eğitim Sistemi")
 st.caption(
-    "Maaş Mutemedi Onboarding | "
+    "DELF/DALF Sınav Düzeltici | "
     + ("⚠️ MOCK MODU AKTİF — cloud servis çağrısı yapılmıyor" if MOCK_MODE else f"🟢 Vertex AI Gemini: {settings.GENERATION_MODEL}")
 )
 
@@ -197,6 +360,7 @@ tabs = st.tabs(
         "✅ Uzman Onay Paneli",
         "🔬 Prompt Optimizer",
         "🗄️ Veritabanı Gezgini",
+        "💬 Asistan",
     ]
 )
 
@@ -313,17 +477,27 @@ with tabs[0]:
 
 with tabs[1]:
     st.subheader("Süreç Haritası, Hata Kartları ve Terim Sözlüğü")
+    _poll_process_map_confidence_job()
+    _poll_error_cards_confidence_job()
 
     # --- Process Map ---
     st.markdown("#### 🗺️ Süreç Haritası")
-    if st.button("Süreç Haritası Oluştur", key="gen_process_map"):
+    if st.button(
+        "Süreç Haritası Oluştur", key="gen_process_map",
+        help="DELF/DALF sınavcı-düzeltici değerlendirme sürecinin adım adım haritasını oluşturur. "
+             "Hazırlık, Bireysel Düzeltme, Çift Düzeltme ve Finalizasyon fazlarını kapsar.",
+    ):
         from src.generators import generate_process_map
 
-        result, error = _run_via_queue("Süreç haritası oluşturuluyor", generate_process_map)
+        result, error = _run_via_queue(
+            "Süreç haritası oluşturuluyor", generate_process_map,
+            language=st.session_state.get("output_language", "tr"),
+            defer_confidence=True,
+        )
         if error:
             st.error(f"Hata: {error}")
         else:
-            st.session_state["process_map"] = result
+            st.session_state["process_map"] = _start_process_map_confidence_job(result)
             st.session_state["approvals"]["process_map"] = {}
 
     pm = st.session_state.get("process_map")
@@ -334,25 +508,36 @@ with tabs[1]:
                 with st.expander("Ham Çıktı"):
                     st.text(pm["ham_çıktı"])
         else:
+            _render_confidence_banner(pm)
             steps = pm.get("steps", [])
             if steps:
                 df_pm = pd.DataFrame(steps)
                 st.dataframe(df_pm, use_container_width=True, hide_index=True)
             else:
                 st.warning("Adım bulunamadı.")
+            if pm.get("_confidence_status") == "pending":
+                _schedule_confidence_autorefresh()
 
     st.markdown("---")
 
     # --- Error Cards ---
     st.markdown("#### ⚠️ Hata Kartları")
-    if st.button("Hata Kartlarını Oluştur", key="gen_error_cards"):
+    if st.button(
+        "Hata Kartlarını Oluştur", key="gen_error_cards",
+        help="Yeni DELF/DALF sınavcılarının sık yaptığı değerlendirme hatalarını kartlar halinde listeler. "
+             "Her kart: hata, kök neden, tespit yöntemi ve doğru uygulama içerir.",
+    ):
         from src.generators import generate_error_cards
 
-        result, error = _run_via_queue("Hata kartları oluşturuluyor", generate_error_cards)
+        result, error = _run_via_queue(
+            "Hata kartları oluşturuluyor", generate_error_cards,
+            language=st.session_state.get("output_language", "tr"),
+            defer_confidence=True,
+        )
         if error:
             st.error(f"Hata: {error}")
         else:
-            st.session_state["error_cards"] = result
+            st.session_state["error_cards"] = _start_error_cards_confidence_job(result)
             st.session_state["approvals"]["error_cards"] = {}
 
     ec = st.session_state.get("error_cards")
@@ -360,6 +545,7 @@ with tabs[1]:
         if "hata" in ec:
             st.error(f"İçerik üretilemedi: {ec.get('hata')}")
         else:
+            _render_confidence_banner(ec)
             cards = ec.get("hata_kartlari", [])
             for card in cards:
                 with st.expander(f"Kart {card.get('kart_no', '?')}: {card.get('hata', '')}"):
@@ -373,15 +559,24 @@ with tabs[1]:
                         </div>""",
                         unsafe_allow_html=True,
                     )
+            if ec.get("_confidence_status") == "pending":
+                _schedule_confidence_autorefresh()
 
     st.markdown("---")
 
     # --- Glossary ---
     st.markdown("#### 📖 Terim Sözlüğü")
-    if st.button("Terim Sözlüğü Oluştur", key="gen_glossary"):
+    if st.button(
+        "Terim Sözlüğü Oluştur", key="gen_glossary",
+        help="DELF/DALF sınavcıları için CECRL terim sözlüğü oluşturur. "
+             "Grille, descripteur, copie atypique gibi teknik terimleri tanım ve kullanım örnekleriyle açıklar.",
+    ):
         from src.generators import generate_glossary
 
-        result, error = _run_via_queue("Terim sözlüğü oluşturuluyor", generate_glossary)
+        result, error = _run_via_queue(
+            "Terim sözlüğü oluşturuluyor", generate_glossary,
+            language=st.session_state.get("output_language", "tr"),
+        )
         if error:
             st.error(f"Hata: {error}")
         else:
@@ -411,10 +606,17 @@ with tabs[1]:
 with tabs[2]:
     st.subheader("İnteraktif Simülasyon Senaryosu")
 
-    if st.button("🎲 Yeni Senaryo Oluştur", key="gen_simulation"):
+    if st.button(
+        "🎲 Yeni Senaryo Oluştur", key="gen_simulation",
+        help="Gerçekçi bir DELF/DALF değerlendirme karar senaryosu üretir. "
+             "Atipik kopya, puan uyuşmazlığı veya bant sınır kararları gibi kritik durumları test eder.",
+    ):
         from src.generators import generate_simulation_scenario
 
-        result, error = _run_via_queue("Senaryo oluşturuluyor", generate_simulation_scenario)
+        result, error = _run_via_queue(
+            "Senaryo oluşturuluyor", generate_simulation_scenario,
+            language=st.session_state.get("output_language", "tr"),
+        )
         if error:
             st.error(f"Hata: {error}")
         else:
@@ -852,20 +1054,23 @@ with tabs[5]:
             data = col.get(include=["documents", "metadatas"])
             chunks = []
             for doc, meta in zip(data["documents"], data["metadatas"]):
-                # Phase 1.2.A: enriched=true ise gömülen 'doc' bağlam özeti +
-                # orijinaldir. UI'da orijinali göstermek daha anlaşılır.
                 original = meta.get("original_text", doc)
+                # DELF corpus uses source_filename + doc_type; fall back to old keys
+                filename = meta.get("source_filename", meta.get("filename", "bilinmiyor"))
+                doc_type = meta.get("doc_type", meta.get("source", "bilinmiyor"))
                 chunks.append({
                     "text": original,
                     "embedded_text": doc,
                     "enriched": bool(meta.get("enriched", False)),
-                    "source": meta.get("source", "bilinmiyor"),
-                    "filename": meta.get("filename", "bilinmiyor"),
+                    "doc_type": doc_type,
+                    "filename": filename,
+                    "level": meta.get("level", ""),
+                    "skill": meta.get("skill", ""),
                     "chunk_index": meta.get("child_index", 0),
                     "parent_id": meta.get("parent_id", ""),
                     "char_count": meta.get("char_count", len(original)),
                 })
-            chunks.sort(key=lambda c: (c["source"], c["chunk_index"]))
+            chunks.sort(key=lambda c: (c["doc_type"], c["filename"], c["chunk_index"]))
             return chunks
         except Exception as exc:
             return []
@@ -875,40 +1080,57 @@ with tabs[5]:
     if not all_chunks:
         st.info("ℹ️ Veritabanı boş. Önce 'Veri Yükleme' sekmesinden veritabanını yükleyin.")
     else:
-        mevzuat_chunks = [c for c in all_chunks if c["source"] == "explicit"]
-        tacit_chunks   = [c for c in all_chunks if c["source"] == "tacit"]
+        from collections import Counter as _Counter
+        type_counts = _Counter(c["doc_type"] for c in all_chunks)
+        unique_files = len(set(c["filename"] for c in all_chunks))
 
         # --- Top metrics ---
         m1, m2, m3 = st.columns(3)
         m1.metric("Toplam Bilgi Parçası", len(all_chunks))
-        m2.metric("📘 Mevzuat (Resmi Kural)", len(mevzuat_chunks))
-        m3.metric("🧠 Tacit (Deneyim)", len(tacit_chunks))
+        m2.metric("📄 Kaynak Doküman", unique_files)
+        m3.metric("🏷️ Doküman Tipi", len(type_counts))
 
         st.markdown("---")
 
-        # --- Filters and search ---
-        fcol1, fcol2 = st.columns([1, 2])
+        # --- Filters ---
+        doc_types_sorted = sorted(type_counts.keys())
+        levels_sorted = sorted(set(c["level"] for c in all_chunks if c["level"]))
+        skills_sorted = sorted(set(c["skill"] for c in all_chunks if c["skill"]))
+
+        fcol1, fcol2, fcol3, fcol4 = st.columns([1.5, 1, 1, 2])
         with fcol1:
-            source_filter = st.radio(
-                "Kaynak filtresi:",
-                options=["Tümü", "📘 Mevzuat", "🧠 Tacit"],
-                horizontal=True,
-                key="db_source_filter",
+            type_opts = ["Tümü"] + doc_types_sorted
+            doc_type_filter = st.selectbox(
+                "Doküman tipi:",
+                options=type_opts,
+                key="db_doctype_filter",
             )
         with fcol2:
+            level_filter = st.selectbox(
+                "Seviye:",
+                options=["Tümü"] + levels_sorted,
+                key="db_level_filter",
+            )
+        with fcol3:
+            skill_filter = st.selectbox(
+                "Beceri:",
+                options=["Tümü"] + skills_sorted,
+                key="db_skill_filter",
+            )
+        with fcol4:
             search_query = st.text_input(
                 "🔍 Metin içinde ara:",
-                placeholder="Örn: maaş, vergi, ödeme...",
+                placeholder="Örn: grille, descripteur, niveau...",
                 key="db_search",
             )
 
-        if source_filter == "📘 Mevzuat":
-            visible = mevzuat_chunks
-        elif source_filter == "🧠 Tacit":
-            visible = tacit_chunks
-        else:
-            visible = all_chunks
-
+        visible = all_chunks
+        if doc_type_filter != "Tümü":
+            visible = [c for c in visible if c["doc_type"] == doc_type_filter]
+        if level_filter != "Tümü":
+            visible = [c for c in visible if c["level"] == level_filter]
+        if skill_filter != "Tümü":
+            visible = [c for c in visible if c["skill"] == skill_filter]
         if search_query.strip():
             q = search_query.strip().lower()
             visible = [c for c in visible if q in c["text"].lower()]
@@ -916,22 +1138,34 @@ with tabs[5]:
         st.caption(f"{len(visible)} parça gösteriliyor")
         st.markdown("---")
 
+        # doc_type → CSS class mapping
+        _OFFICIAL_TYPES = {"grille", "descripteur", "manuel", "methodologie", "explicit"}
+        _TACIT_TYPES    = {"tacit", "stagiaire", "brouillon"}
+
         # --- Render chunk cards ---
         for chunk in visible:
-            src = chunk["source"]
-            css_cls  = "mevzuat" if src == "explicit" else "tacit"
-            badge_cls = "badge-mevzuat" if src == "explicit" else "badge-tacit"
-            badge_lbl = "📘 Mevzuat" if src == "explicit" else "🧠 Tacit Deneyim"
-            preview = chunk["text"][:280].replace("\n", " ")
-            if len(chunk["text"]) > 280:
-                preview += "…"
+            dt = chunk["doc_type"]
+            if dt in _OFFICIAL_TYPES:
+                css_cls   = "mevzuat"
+                badge_cls = "badge-mevzuat"
+            elif dt in _TACIT_TYPES:
+                css_cls   = "tacit"
+                badge_cls = "badge-tacit"
+            else:
+                css_cls   = "mevzuat"
+                badge_cls = "badge-mevzuat"
+
+            level_tag = f" · {chunk['level']}" if chunk.get("level") else ""
+            skill_tag = f" · {chunk['skill']}" if chunk.get("skill") else ""
+            badge_lbl = dt.upper() if dt != "bilinmiyor" else "BILINMIYOR"
 
             enriched_badge = (
-                "<span class='chunk-badge' style='background:#8e44ad;color:white;'>📑 Bağlam Zenginleştirildi</span>"
+                "<span class='chunk-badge' style='background:#8e44ad;color:white;'>📑 Zenginleştirildi</span>"
                 if chunk.get("enriched") else ""
             )
             with st.expander(
-                f"{badge_lbl}  ·  Alt Parça #{chunk['chunk_index']}  ·  {chunk['char_count']} karakter"
+                f"[{badge_lbl}]{level_tag}{skill_tag}  ·  {chunk['filename']}  ·  "
+                f"Alt Parça #{chunk['chunk_index']}  ·  {chunk['char_count']} karakter"
             ):
                 st.markdown(
                     f"""<div class="chunk-card {css_cls}">
@@ -939,6 +1173,8 @@ with tabs[5]:
                         <span class="chunk-badge {badge_cls}">{badge_lbl}</span>
                         {enriched_badge}
                         Dosya: <b>{chunk['filename']}</b> &nbsp;·&nbsp;
+                        Seviye: <b>{chunk.get('level') or '—'}</b> &nbsp;·&nbsp;
+                        Beceri: <b>{chunk.get('skill') or '—'}</b> &nbsp;·&nbsp;
                         Alt parça: <b>#{chunk['chunk_index']}</b> &nbsp;·&nbsp;
                         Üst parça: <b>{chunk['parent_id']}</b> &nbsp;·&nbsp;
                         {chunk['char_count']} karakter
@@ -950,3 +1186,174 @@ with tabs[5]:
                 if chunk.get("enriched"):
                     with st.expander("🔬 Gömme için kullanılan zenginleştirilmiş metin"):
                         st.code(chunk["embedded_text"], language=None)
+
+# ===========================================================================
+# TAB 7 — Asistan (sohbet)
+# ===========================================================================
+
+with tabs[6]:
+    _lang = st.session_state.get("output_language", "tr")
+    _is_tr = _lang == "tr"
+
+    st.subheader("💬 Asistan" if _is_tr else "💬 Assistant")
+    st.markdown(
+        (
+            "DELF/DALF değerlendirme protokolü, grille'ler, descripteur'lar ve "
+            "metodoloji hakkında serbestçe soru sorun. Her olgusal yanıt korpus "
+            "kaynaklarıyla **dayandırılır ve alıntılanır**. Asistan nihai puan "
+            "kararı vermez ve sınav içeriği üretmez."
+        )
+        if _is_tr
+        else (
+            "Posez librement vos questions sur le protocole d'évaluation DELF/DALF, "
+            "les grilles, les descripteurs et la méthodologie. Chaque réponse "
+            "factuelle est **ancrée et citée** depuis le corpus. L'assistant ne "
+            "décide pas de la note finale et ne génère pas de contenu d'examen."
+        )
+    )
+
+    if MOCK_MODE:
+        st.warning(
+            "⚠️ MOCK MODU — sabit örnek yanıt döner, API çağrısı yapılmaz."
+            if _is_tr
+            else "⚠️ MODE MOCK — réponse fixe, aucun appel API."
+        )
+
+    # --- Toolbar: turn counter + new conversation ---
+    _turns = st.session_state.get("chat_turns", 0)
+    tcol1, tcol2 = st.columns([3, 1])
+    with tcol1:
+        st.caption(
+            f"Tur: {_turns}/{MAX_TURNS}" if _is_tr else f"Tour : {_turns}/{MAX_TURNS}"
+        )
+    with tcol2:
+        if st.button(
+            "🔄 Yeni Konuşma" if _is_tr else "🔄 Nouvelle conversation",
+            key="chat_reset",
+            use_container_width=True,
+            help=(
+                "Konuşma geçmişini temizler ve tur sayacını sıfırlar."
+                if _is_tr
+                else "Efface l'historique et réinitialise le compteur de tours."
+            ),
+        ):
+            st.session_state["chat_history"] = []
+            st.session_state["chat_turns"] = 0
+            st.rerun()
+
+    # --- Example prompts (shown only on an empty conversation) ---
+    if not st.session_state["chat_history"]:
+        _examples_tr = [
+            "B2 PE söylem tutarlılığı kriterinde bant 2 ne anlama gelir?",
+            "İki düzeltici 2 banttan fazla farklı puan verdiğinde ne yapmalıyım?",
+            "DELF düzeltmesinde halo etkisi nedir?",
+            "Beni B2 PE üzerine kısa bir quizle sına.",
+        ]
+        _examples_fr = [
+            "Que signifie la bande 2 pour le critère de cohérence en B2 PE ?",
+            "Que faire si deux correcteurs divergent de plus de 2 bandes ?",
+            "Qu'est-ce que l'effet de halo dans la correction DELF ?",
+            "Lance-moi un mini-quiz sur le B2 PE.",
+        ]
+        st.markdown("**Örnek sorular:**" if _is_tr else "**Exemples de questions :**")
+        for _i, _ex in enumerate(_examples_tr if _is_tr else _examples_fr):
+            if st.button(_ex, key=f"chat_example_{_i}", use_container_width=True):
+                st.session_state["chat_inject"] = _ex
+                st.rerun()
+
+    # Consume an injected message from example buttons (cleared immediately so it
+    # doesn't fire again on the next rerun after the conversation is appended).
+    _inject: str | None = st.session_state.get("chat_inject")
+    if _inject:
+        st.session_state["chat_inject"] = None
+
+    # --- Render conversation history ---
+    for _msg in st.session_state["chat_history"]:
+        with st.chat_message(_msg["role"]):
+            st.markdown(_msg["content"])
+            _srcs = _msg.get("sources") or []
+            if _srcs:
+                with st.expander(
+                    (f"📎 Kaynaklar ({len(_srcs)})" if _is_tr else f"📎 Sources ({len(_srcs)})")
+                ):
+                    _citation_report = _srcs[0].get("_citation_report") or {}
+                    if _citation_report:
+                        _passed = bool(_citation_report.get("passed"))
+                        _cited = int(_citation_report.get("cited_count", 0) or 0)
+                        _retrieved = int(_citation_report.get("retrieved_count", len(_srcs)) or 0)
+                        _invalid = _citation_report.get("invalid_parent_ids") or []
+                        st.caption(
+                            (
+                                f"✅ Atıf kontrolü geçti · {_cited}/{_retrieved} kaynak kullanıldı"
+                                if _passed
+                                else f"⚠️ Atıf kontrolü uyarısı · {_cited}/{_retrieved} kaynak kullanıldı"
+                            )
+                            if _is_tr
+                            else (
+                                f"✅ Citations validées · {_cited}/{_retrieved} sources utilisées"
+                                if _passed
+                                else f"⚠️ Avertissement citations · {_cited}/{_retrieved} sources utilisées"
+                            )
+                        )
+                        if _invalid:
+                            st.caption(
+                                ("Doğrulanamayan parent_id: " if _is_tr else "parent_id non validé : ")
+                                + ", ".join(_invalid)
+                            )
+                    for _s in _srcs:
+                        st.markdown(
+                            f"**{_s.get('filename', '?')}** — `{_s.get('parent_id', '')}` "
+                            f"· skor: {_s.get('score', 0)}"
+                        )
+                        if _s.get("snippet"):
+                            st.caption(_s["snippet"])
+
+    # --- Turn limit gate ---
+    _limit_reached = _turns >= MAX_TURNS
+    if _limit_reached:
+        st.warning(
+            "Bu konuşma tur sınırına ulaştı. Bağlam kaymasını önlemek için "
+            "lütfen **🔄 Yeni Konuşma** ile yeni bir konuşma başlatın."
+            if _is_tr
+            else "Cette conversation a atteint la limite de tours. Démarrez une "
+            "**🔄 Nouvelle conversation** pour éviter la dérive de contexte."
+        )
+
+    # --- Chat input ---
+    _user_msg = st.chat_input(
+        ("Sorunuzu yazın..." if _is_tr else "Saisissez votre question..."),
+        key="chat_input",
+        disabled=_limit_reached,
+    )
+
+    _active_msg = (_user_msg or "").strip() or (_inject or "").strip()
+
+    if _active_msg:
+        history_before = list(st.session_state["chat_history"])
+        st.session_state["chat_history"].append(
+            {"role": "user", "content": _active_msg, "sources": []}
+        )
+        with st.chat_message("user"):
+            st.markdown(_active_msg)
+
+        with st.chat_message("assistant"):
+            # Retrieval senkrondur (spinner); LLM yanıtı akışla render edilir.
+            with st.spinner("Kaynaklar aranıyor..." if _is_tr else "Recherche des sources..."):
+                _stream, _sources = chat_stream(
+                    _active_msg, history=history_before, language=_lang
+                )
+            _answer = st.write_stream(_stream)
+
+        _citation_report = validate_citations(_answer, _sources) if _sources else {}
+        if _citation_report:
+            _sources = [{**_s, "_citation_report": _citation_report} for _s in _sources]
+
+        st.session_state["chat_history"].append(
+            {
+                "role": "assistant",
+                "content": _answer,
+                "sources": _sources,
+            }
+        )
+        st.session_state["chat_turns"] = _turns + 1
+        st.rerun()
