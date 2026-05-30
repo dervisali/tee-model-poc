@@ -32,6 +32,7 @@ HAS_CHROMADB = _have("chromadb")
 HAS_GOOGLE_GENAI = _have("google.genai")
 HAS_RANK_BM25 = _have("rank_bm25")
 RUN_VERTEX_TESTS = os.getenv("RUN_VERTEX_TESTS", "false").lower() == "true"
+RUN_COLDSTART_TEST = os.getenv("RUN_COLDSTART_TEST", "false").lower() in ("1", "true", "yes")
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -39,12 +40,16 @@ def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line("markers", "requires_chromadb: chromadb gerektirir.")
     config.addinivalue_line("markers", "requires_bm25: rank_bm25 gerektirir.")
     config.addinivalue_line("markers", "integration: Tam yığını gerektiren entegrasyon testi.")
+    config.addinivalue_line("markers", "requires_chromadb_seeded: gerçek bir ChromaDB tohumlar (chromadb gerekir).")
+    config.addinivalue_line("markers", "requires_cold_start: RUN_COLDSTART_TEST=1 ve gerçek korpus gerektiren soğuk-başlangıç testi.")
 
 
 def pytest_collection_modifyitems(config, items):
     skip_vertex = pytest.mark.skip(reason="canlı Vertex AI testleri kapalı veya google-genai yüklü değil")
     skip_chroma = pytest.mark.skip(reason="chromadb yüklü değil")
     skip_bm25 = pytest.mark.skip(reason="rank_bm25 yüklü değil")
+    skip_seeded = pytest.mark.skip(reason="chromadb yüklü değil (tohumlanmış DB testi)")
+    skip_coldstart = pytest.mark.skip(reason="RUN_COLDSTART_TEST ayarlı değil veya chromadb yok")
 
     for item in items:
         if "requires_vertex_embeddings" in item.keywords and not (RUN_VERTEX_TESTS and HAS_GOOGLE_GENAI):
@@ -53,3 +58,7 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(skip_chroma)
         if "requires_bm25" in item.keywords and not HAS_RANK_BM25:
             item.add_marker(skip_bm25)
+        if "requires_chromadb_seeded" in item.keywords and not HAS_CHROMADB:
+            item.add_marker(skip_seeded)
+        if "requires_cold_start" in item.keywords and not (RUN_COLDSTART_TEST and HAS_CHROMADB):
+            item.add_marker(skip_coldstart)

@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import unicodedata
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -45,6 +46,259 @@ def load_test_questions(path: Path | None = None) -> list[dict[str, Any]]:
         raise FileNotFoundError(f"Test seti bulunamadı: {path}")
     data = json.loads(path.read_text(encoding="utf-8"))
     return data.get("questions", data) if isinstance(data, dict) else data
+
+
+# `load_test_set` — açık isimli takma ad (Phase 2 recall harness'i ile uyum).
+load_test_set = load_test_questions
+
+
+# ---------------------------------------------------------------------------
+# Deterministik kaynak-recall metrikleri (Phase 2 — RAGAS'tan bağımsız)
+#
+# `retrieve_context` parent kaynaklarını döndürür; bunları eval setindeki
+# `expected_sources` (gerçek korpus dosya adları) ile karşılaştırırız. LLM-yargıç
+# YOK — yalnızca küme matematiği. Bu yüzden ucuz, deterministik ve CI-uygun.
+# ---------------------------------------------------------------------------
+
+def _basename(name: str) -> str:
+    """
+    Dosya adını döndürür (yol bileşenlerini atar) ve Unicode NFC'ye normalize eder.
+
+    Korpus dosya adları macOS'ta NFD (ayrışık: o + ̂) saklanabilirken eval setindeki
+    literaller NFC (birleşik: ô) olabilir. Karşılaştırmanın iki tarafını da NFC'ye
+    çekmek, 'Diaporama_rôle_EC_VF.pptx' gibi aksanlı adların yanlışlıkla eşleşmemesini önler.
+    """
+    return unicodedata.normalize("NFC", Path(str(name)).name)
+
+
+def _source_recall(gold: list[str], retrieved: list[str]) -> float:
+    """
+    Set-recall: geri-getirilen kaynaklar arasında bulunan altın (gold)
+    kaynakların oranı. gold boşsa 1.0 (cezalandırma yok).
+    """
+    gold_set = {_basename(g) for g in gold}
+    if not gold_set:
+        return 1.0
+    retr_set = {_basename(r) for r in retrieved}
+    hit = len(gold_set & retr_set)
+    return hit / len(gold_set)
+
+
+def _source_precision(gold: list[str], retrieved: list[str]) -> float:
+    """
+    Set-precision: geri-getirilen kaynaklardan kaçı altın küme içinde.
+    retrieved boşsa 0.0.
+    """
+    gold_set = {_basename(g) for g in gold}
+    retr_set = {_basename(r) for r in retrieved}
+    if not retr_set:
+        return 0.0
+    hit = len(gold_set & retr_set)
+    return hit / len(retr_set)
+
+
+def _hit_at_k(gold: list[str], retrieved: list[str]) -> float:
+    """Top-k içinde ≥1 altın kaynak varsa 1.0, yoksa 0.0."""
+    gold_set = {_basename(g) for g in gold}
+    if not gold_set:
+        return 1.0
+    retr_set = {_basename(r) for r in retrieved}
+    return 1.0 if (gold_set & retr_set) else 0.0
+
+
+def _retrieved_sources(hits: list[dict]) -> list[str]:
+    """Hit dict listesinden (parent sırasıyla) kaynak dosya adlarını çıkarır."""
+    sources: list[str] = []
+    for h in hits:
+        name = h.get("filename") or h.get("source_file") or h.get("source") or ""
+        if name:
+            sources.append(_basename(name))
+    return sources
+
+
+def _mean(values: list[float]) -> float | None:
+    return sum(values) / len(values) if values else None
+
+
+def evaluate_retrieval(
+    test_questions: list[dict] | None = None,
+    *,
+    ks: list[int] | None = None,
+    retrieve_fn=None,
+) -> dict:
+    """
+    Her soru için recall@k / hit@k / precision@k hesaplar.
+
+    `retrieve_context` en geniş k için BİR KEZ çağrılır (max(ks)); küçük k'ler
+    bu sonucun ön-dilimleridir. Bu, çağrı sayısını (ve gömme maliyetini) düşürür.
+
+    Döner
+    -----
+    dict — {"per_question": [...], "ks": [...]} ham gözlemler. Toplama `_aggregate`
+    tarafından yapılır.
+    """
+    test_questions = test_questions or load_test_set()
+    ks = sorted(ks or settings.RECALL_EVAL_KS)
+    max_k = max(ks)
+    retrieve_fn = retrieve_fn or retrieve_context
+
+    per_question: list[dict] = []
+    for item in test_questions:
+        if not item.get("answerable", True):
+            continue  # destekleyici kaynağı olmayan sorular recall'a katılmaz
+        gold = item.get("expected_sources", [])
+        if not gold:
+            continue
+        query = item.get("question") or item.get("question_tr") or item.get("question_fr") or ""
+        try:
+            hits = retrieve_fn(query, top_k=max_k)
+        except Exception as exc:  # noqa: BLE001 — bir soru patlarsa kaydet, devam et
+            logger.warning("Retrieval hatası (%s): %s", item.get("id"), exc)
+            hits = []
+        retrieved_all = _retrieved_sources(hits)
+
+        rec = {"id": item.get("id", "?")}
+        for k in ks:
+            top = retrieved_all[:k]
+            rec[f"recall@{k}"] = _source_recall(gold, top)
+            rec[f"hit@{k}"] = _hit_at_k(gold, top)
+            rec[f"precision@{k}"] = _source_precision(gold, top)
+        rec["gold"] = [_basename(g) for g in gold]
+        rec["retrieved"] = retrieved_all[:max_k]
+        # Toplama için kova (bucket) etiketleri
+        rec["language"] = item.get("language", "?")
+        rec["type"] = item.get("type", "?")
+        rec["doc_type"] = item.get("category", item.get("doc_type", "?"))
+        rec["level"] = item.get("level", "?")
+        rec["split"] = item.get("split", "?")
+        per_question.append(rec)
+
+    return {"per_question": per_question, "ks": ks}
+
+
+def _aggregate(per_question: list[dict], ks: list[int]) -> dict:
+    """Genel ve kova-bazlı (language/type/doc_type/level/split) ortalamalar."""
+    def agg(rows: list[dict]) -> dict:
+        out = {"n": len(rows)}
+        for k in ks:
+            out[f"recall@{k}"] = _mean([r[f"recall@{k}"] for r in rows])
+            out[f"hit@{k}"] = _mean([r[f"hit@{k}"] for r in rows])
+            out[f"precision@{k}"] = _mean([r[f"precision@{k}"] for r in rows])
+        return out
+
+    overall = agg(per_question)
+    buckets: dict[str, dict] = {}
+    for dim in ("language", "type", "doc_type", "level", "split"):
+        groups: dict[str, list[dict]] = {}
+        for r in per_question:
+            groups.setdefault(str(r.get(dim, "?")), []).append(r)
+        buckets[dim] = {val: agg(rows) for val, rows in sorted(groups.items())}
+    return {"overall": overall, "buckets": buckets}
+
+
+def run_recall_report(
+    test_questions: list[dict] | None = None,
+    *,
+    ks: list[int] | None = None,
+    retrieve_fn=None,
+    save: bool = True,
+) -> dict:
+    """
+    Deterministik recall@k raporunu uçtan uca çalıştırır ve (isteğe bağlı)
+    `evaluation/results/recall_baseline_<UTC>.json` + `.md` artefaktlarını yazar.
+
+    M3 = RECALL_M3_K (None ise RETRIEVAL_TOP_K) k'sinde ortalama recall@k.
+    """
+    test_questions = test_questions or load_test_set()
+    ks = sorted(ks or settings.RECALL_EVAL_KS)
+    raw = evaluate_retrieval(test_questions, ks=ks, retrieve_fn=retrieve_fn)
+    agg = _aggregate(raw["per_question"], ks)
+
+    m3_k = settings.RECALL_M3_K or settings.RETRIEVAL_TOP_K
+    if m3_k not in ks:
+        m3_k = min(ks, key=lambda k: abs(k - m3_k))
+    m3_recall = agg["overall"].get(f"recall@{m3_k}")
+    m3_hit = agg["overall"].get(f"hit@{m3_k}")
+
+    ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    report = {
+        "metadata": {
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "n_questions_evaluated": len(raw["per_question"]),
+            "ks": ks,
+            "m3_k": m3_k,
+            "m3_recall_at_k": m3_recall,
+            "m3_hit_at_k": m3_hit,
+            "retrieval_top_k": settings.RETRIEVAL_TOP_K,
+            "mock_mode": settings.MOCK_MODE,
+            "search_mode": "hybrid" if settings.ENABLE_HYBRID_SEARCH else "dense",
+            "embedding_model": settings.EMBEDDING_MODEL,
+            "test_set": str(settings.RAGAS_TEST_SET_PATH),
+        },
+        "aggregate": agg,
+        "per_question": raw["per_question"],
+    }
+
+    artifact_path = None
+    if save:
+        settings.RAGAS_RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+        artifact_path = settings.RAGAS_RESULTS_DIR / f"recall_baseline_{ts}.json"
+        artifact_path.write_text(
+            json.dumps(report, ensure_ascii=False, indent=2, default=str),
+            encoding="utf-8",
+        )
+        md_path = settings.RAGAS_RESULTS_DIR / f"recall_baseline_{ts}.md"
+        md_path.write_text(_render_recall_md(report), encoding="utf-8")
+        report["metadata"]["artifact_json"] = str(artifact_path)
+        report["metadata"]["artifact_md"] = str(md_path)
+
+    return report
+
+
+def _fmt_pct(v: float | None) -> str:
+    return f"{v * 100:.1f}%" if v is not None else "—"
+
+
+def _render_recall_md(report: dict) -> str:
+    """İnsan-okunur kısa Markdown özeti üretir."""
+    md = report["metadata"]
+    agg = report["aggregate"]
+    ks = md["ks"]
+    lines: list[str] = []
+    lines.append("# Recall@k baseline (deterministic, source-recall)")
+    lines.append("")
+    lines.append(f"- Timestamp (UTC): {md['timestamp']}")
+    lines.append(f"- Questions evaluated: {md['n_questions_evaluated']}")
+    lines.append(f"- MOCK_MODE: {md['mock_mode']} · search_mode: {md['search_mode']}")
+    lines.append(f"- Embedding model: {md['embedding_model']}")
+    lines.append(
+        f"- **M3 = mean recall@{md['m3_k']} = {_fmt_pct(md['m3_recall_at_k'])}** "
+        f"(hit@{md['m3_k']} = {_fmt_pct(md['m3_hit_at_k'])}); target ≥ 90%"
+    )
+    lines.append("")
+    lines.append("## Overall")
+    lines.append("")
+    header = "| metric | " + " | ".join(f"@{k}" for k in ks) + " |"
+    sep = "|---|" + "|".join("---" for _ in ks) + "|"
+    lines.append(header)
+    lines.append(sep)
+    for metric in ("recall", "hit", "precision"):
+        row = f"| {metric} | " + " | ".join(
+            _fmt_pct(agg["overall"].get(f"{metric}@{k}")) for k in ks
+        ) + " |"
+        lines.append(row)
+    lines.append("")
+    for dim, groups in agg["buckets"].items():
+        lines.append(f"## By {dim}")
+        lines.append("")
+        lines.append("| value | n | " + " | ".join(f"recall@{k}" for k in ks) + " | " + " | ".join(f"hit@{k}" for k in ks) + " |")
+        lines.append("|---|---|" + "|".join("---" for _ in ks) + "|" + "|".join("---" for _ in ks) + "|")
+        for val, a in groups.items():
+            rec = " | ".join(_fmt_pct(a.get(f"recall@{k}")) for k in ks)
+            hit = " | ".join(_fmt_pct(a.get(f"hit@{k}")) for k in ks)
+            lines.append(f"| {val} | {a['n']} | {rec} | {hit} |")
+        lines.append("")
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -324,14 +578,35 @@ def _print_summary(result: dict) -> None:
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-    parser = argparse.ArgumentParser(description="TEE-Model RAGAS değerlendirme.")
+    parser = argparse.ArgumentParser(description="TEE-Model değerlendirme.")
     parser.add_argument("--quick", action="store_true", help="Yalnızca ilk 5 soruyla çalıştır.")
     parser.add_argument("--top-k", type=int, default=5)
+    parser.add_argument(
+        "--recall-report",
+        action="store_true",
+        help="Yalnızca deterministik recall@k raporunu çalıştır (RAGAS yok); "
+             "headline M3 + artefakt yolunu yazdırır.",
+    )
+    parser.add_argument(
+        "--no-ragas",
+        action="store_true",
+        help="RAGAS akışını atla (recall raporu ile birlikte kullanışlıdır).",
+    )
     args = parser.parse_args()
 
-    questions = load_test_questions()
-    if args.quick:
-        questions = questions[:5]
-
-    result = evaluate_rag_pipeline(test_questions=questions, top_k=args.top_k)
-    _print_summary(result)
+    if args.recall_report or args.no_ragas:
+        report = run_recall_report()
+        md = report["metadata"]
+        # stdout'u KÜÇÜK tut: yalnızca headline + artefakt yolu.
+        print(
+            f"M3 mean recall@{md['m3_k']} = {_fmt_pct(md['m3_recall_at_k'])} "
+            f"(hit@{md['m3_k']} = {_fmt_pct(md['m3_hit_at_k'])}) "
+            f"over n={md['n_questions_evaluated']} (target >= 90%)"
+        )
+        print(f"artifact: {md.get('artifact_json', '(not saved)')}")
+    else:
+        questions = load_test_questions()
+        if args.quick:
+            questions = questions[:5]
+        result = evaluate_rag_pipeline(test_questions=questions, top_k=args.top_k)
+        _print_summary(result)

@@ -1,0 +1,1182 @@
+{
+  "total_children": 4950,
+  "n_files": 56,
+  "files": {
+    "Inventaire_ONLINE_full.pdf": {
+      "child_count": 2109,
+      "doc_type": [
+        [
+          "manuel",
+          2109
+        ]
+      ],
+      "level": [
+        [
+          "general",
+          2109
+        ]
+      ],
+      "skill": [
+        [
+          "general",
+          2109
+        ]
+      ]
+    },
+    "Descripteurs_CECRL_A1_B2_VF_a_donner.pdf": {
+      "child_count": 667,
+      "doc_type": [
+        [
+          "descripteur",
+          667
+        ]
+      ],
+      "level": [
+        [
+          "general",
+          667
+        ]
+      ],
+      "skill": [
+        [
+          "general",
+          667
+        ]
+      ]
+    },
+    "manuel-exacor.pdf": {
+      "child_count": 367,
+      "doc_type": [
+        [
+          "manuel",
+          367
+        ]
+      ],
+      "level": [
+        [
+          "general",
+          367
+        ]
+      ],
+      "skill": [
+        [
+          "general",
+          367
+        ]
+      ]
+    },
+    "dalf-c1sujet-demo-candidat-coll.pdf": {
+      "child_count": 161,
+      "doc_type": [
+        [
+          "sujet",
+          161
+        ]
+      ],
+      "level": [
+        [
+          "C1",
+          161
+        ]
+      ],
+      "skill": [
+        [
+          "general",
+          161
+        ]
+      ]
+    },
+    "A2_stagiaire.pdf": {
+      "child_count": 132,
+      "doc_type": [
+        [
+          "stagiaire",
+          132
+        ]
+      ],
+      "level": [
+        [
+          "A2",
+          132
+        ]
+      ],
+      "skill": [
+        [
+          "general",
+          132
+        ]
+      ]
+    },
+    "B2_stagiaire.pdf": {
+      "child_count": 130,
+      "doc_type": [
+        [
+          "stagiaire",
+          130
+        ]
+      ],
+      "level": [
+        [
+          "B2",
+          130
+        ]
+      ],
+      "skill": [
+        [
+          "general",
+          130
+        ]
+      ]
+    },
+    "B1_stagiaire.pdf": {
+      "child_count": 113,
+      "doc_type": [
+        [
+          "stagiaire",
+          113
+        ]
+      ],
+      "level": [
+        [
+          "B1",
+          113
+        ]
+      ],
+      "skill": [
+        [
+          "general",
+          113
+        ]
+      ]
+    },
+    "PO-Veganisme.pdf": {
+      "child_count": 107,
+      "doc_type": [
+        [
+          "sujet",
+          107
+        ]
+      ],
+      "level": [
+        [
+          "C1",
+          107
+        ]
+      ],
+      "skill": [
+        [
+          "PO",
+          107
+        ]
+      ]
+    },
+    "A1_stagiaire.pdf": {
+      "child_count": 86,
+      "doc_type": [
+        [
+          "stagiaire",
+          86
+        ]
+      ],
+      "level": [
+        [
+          "A1",
+          86
+        ]
+      ],
+      "skill": [
+        [
+          "general",
+          86
+        ]
+      ]
+    },
+    "PE_A2.pdf": {
+      "child_count": 55,
+      "doc_type": [
+        [
+          "sujet",
+          55
+        ]
+      ],
+      "level": [
+        [
+          "A2",
+          55
+        ]
+      ],
+      "skill": [
+        [
+          "PE",
+          55
+        ]
+      ]
+    },
+    "Diaporama_rôle_EC_VF.pptx": {
+      "child_count": 48,
+      "doc_type": [
+        [
+          "presentation",
+          48
+        ]
+      ],
+      "level": [
+        [
+          "general",
+          48
+        ]
+      ],
+      "skill": [
+        [
+          "general",
+          48
+        ]
+      ]
+    },
+    "Portfolio_europeen_des_langues.pdf": {
+      "child_count": 47,
+      "doc_type": [
+        [
+          "methodologie",
+          47
+        ]
+      ],
+      "level": [
+        [
+          "general",
+          47
+        ]
+      ],
+      "skill": [
+        [
+          "general",
+          47
+        ]
+      ]
+    },
+    "PO C1 _ “Le corps, une préoccupation majeure des sociétés contemporaines”.pdf": {
+      "child_count": 45,
+      "doc_type": [
+        [
+          "sujet",
+          45
+        ]
+      ],
+      "level": [
+        [
+          "C1",
+          45
+        ]
+      ],
+      "skill": [
+        [
+          "PO",
+          45
+        ]
+      ]
+    },
+    "PE_B1.pdf": {
+      "child_count": 45,
+      "doc_type": [
+        [
+          "sujet",
+          45
+        ]
+      ],
+      "level": [
+        [
+          "B1",
+          45
+        ]
+      ],
+      "skill": [
+        [
+          "PE",
+          45
+        ]
+      ]
+    },
+    "Présentation_copies_atypiques_VF.pptx": {
+      "child_count": 44,
+      "doc_type": [
+        [
+          "copie",
+          44
+        ]
+      ],
+      "level": [
+        [
+          "general",
+          44
+        ]
+      ],
+      "skill": [
+        [
+          "general",
+          44
+        ]
+      ]
+    },
+    "PE_B2.pdf": {
+      "child_count": 38,
+      "doc_type": [
+        [
+          "sujet",
+          38
+        ]
+      ],
+      "level": [
+        [
+          "B2",
+          38
+        ]
+      ],
+      "skill": [
+        [
+          "PE",
+          38
+        ]
+      ]
+    },
+    "Dispositif_DELF-DALF_v2022.pptx": {
+      "child_count": 37,
+      "doc_type": [
+        [
+          "manuel",
+          37
+        ]
+      ],
+      "level": [
+        [
+          "general",
+          37
+        ]
+      ],
+      "skill": [
+        [
+          "general",
+          37
+        ]
+      ]
+    },
+    "WhatsApp Image 2025-06-01 at 21.39.47.jpeg": {
+      "child_count": 34,
+      "doc_type": [
+        [
+          "other",
+          34
+        ]
+      ],
+      "level": [
+        [
+          "C1",
+          34
+        ]
+      ],
+      "skill": [
+        [
+          "general",
+          34
+        ]
+      ]
+    },
+    "DALF C1-PO-Méthodologie-VD.pdf": {
+      "child_count": 33,
+      "doc_type": [
+        [
+          "methodologie",
+          33
+        ]
+      ],
+      "level": [
+        [
+          "C1",
+          33
+        ]
+      ],
+      "skill": [
+        [
+          "PO",
+          33
+        ]
+      ]
+    },
+    "PO_A1.pdf": {
+      "child_count": 31,
+      "doc_type": [
+        [
+          "sujet",
+          31
+        ]
+      ],
+      "level": [
+        [
+          "A1",
+          31
+        ]
+      ],
+      "skill": [
+        [
+          "PO",
+          31
+        ]
+      ]
+    },
+    "PO_B1.pdf": {
+      "child_count": 30,
+      "doc_type": [
+        [
+          "sujet",
+          30
+        ]
+      ],
+      "level": [
+        [
+          "B1",
+          30
+        ]
+      ],
+      "skill": [
+        [
+          "PO",
+          30
+        ]
+      ]
+    },
+    "PO_A2.pdf": {
+      "child_count": 28,
+      "doc_type": [
+        [
+          "sujet",
+          28
+        ]
+      ],
+      "level": [
+        [
+          "A2",
+          28
+        ]
+      ],
+      "skill": [
+        [
+          "PO",
+          28
+        ]
+      ]
+    },
+    "B1_Descripteurs_PO.pdf": {
+      "child_count": 28,
+      "doc_type": [
+        [
+          "descripteur",
+          28
+        ]
+      ],
+      "level": [
+        [
+          "B1",
+          28
+        ]
+      ],
+      "skill": [
+        [
+          "PO",
+          28
+        ]
+      ]
+    },
+    "WhatsApp Image 2025-06-01 at 21.39.12.jpeg": {
+      "child_count": 26,
+      "doc_type": [
+        [
+          "other",
+          26
+        ]
+      ],
+      "level": [
+        [
+          "C1",
+          26
+        ]
+      ],
+      "skill": [
+        [
+          "general",
+          26
+        ]
+      ]
+    },
+    "PE_A1.pdf": {
+      "child_count": 26,
+      "doc_type": [
+        [
+          "sujet",
+          26
+        ]
+      ],
+      "level": [
+        [
+          "A1",
+          26
+        ]
+      ],
+      "skill": [
+        [
+          "PE",
+          26
+        ]
+      ]
+    },
+    "PO_B2.pdf": {
+      "child_count": 26,
+      "doc_type": [
+        [
+          "sujet",
+          26
+        ]
+      ],
+      "level": [
+        [
+          "B2",
+          26
+        ]
+      ],
+      "skill": [
+        [
+          "PO",
+          26
+        ]
+      ]
+    },
+    "WhatsApp Image 2025-06-01 at 21.37.35.docx": {
+      "child_count": 25,
+      "doc_type": [
+        [
+          "other",
+          25
+        ]
+      ],
+      "level": [
+        [
+          "C1",
+          25
+        ]
+      ],
+      "skill": [
+        [
+          "general",
+          25
+        ]
+      ]
+    },
+    "WhatsApp Image 2025-06-01 at 21.37.31.docx": {
+      "child_count": 24,
+      "doc_type": [
+        [
+          "other",
+          24
+        ]
+      ],
+      "level": [
+        [
+          "C1",
+          24
+        ]
+      ],
+      "skill": [
+        [
+          "general",
+          24
+        ]
+      ]
+    },
+    "WhatsApp Image 2025-06-01 at 21.37.35.jpeg": {
+      "child_count": 22,
+      "doc_type": [
+        [
+          "other",
+          22
+        ]
+      ],
+      "level": [
+        [
+          "C1",
+          22
+        ]
+      ],
+      "skill": [
+        [
+          "general",
+          22
+        ]
+      ]
+    },
+    "A1_Descripteurs_PO.pdf": {
+      "child_count": 22,
+      "doc_type": [
+        [
+          "descripteur",
+          22
+        ]
+      ],
+      "level": [
+        [
+          "A1",
+          22
+        ]
+      ],
+      "skill": [
+        [
+          "PO",
+          22
+        ]
+      ]
+    },
+    "A2_Descripteurs_PO.pdf": {
+      "child_count": 21,
+      "doc_type": [
+        [
+          "descripteur",
+          21
+        ]
+      ],
+      "level": [
+        [
+          "A2",
+          21
+        ]
+      ],
+      "skill": [
+        [
+          "PO",
+          21
+        ]
+      ]
+    },
+    "B2_Descripteurs_PO.pdf": {
+      "child_count": 21,
+      "doc_type": [
+        [
+          "descripteur",
+          21
+        ]
+      ],
+      "level": [
+        [
+          "B2",
+          21
+        ]
+      ],
+      "skill": [
+        [
+          "PO",
+          21
+        ]
+      ]
+    },
+    "A1_Descripteurs_PE.pdf": {
+      "child_count": 20,
+      "doc_type": [
+        [
+          "descripteur",
+          20
+        ]
+      ],
+      "level": [
+        [
+          "A1",
+          20
+        ]
+      ],
+      "skill": [
+        [
+          "PE",
+          20
+        ]
+      ]
+    },
+    "B2_Descripteurs_PE.pdf": {
+      "child_count": 20,
+      "doc_type": [
+        [
+          "descripteur",
+          20
+        ]
+      ],
+      "level": [
+        [
+          "B2",
+          20
+        ]
+      ],
+      "skill": [
+        [
+          "PE",
+          20
+        ]
+      ]
+    },
+    "Echelle globale.pdf": {
+      "child_count": 20,
+      "doc_type": [
+        [
+          "descripteur",
+          20
+        ]
+      ],
+      "level": [
+        [
+          "general",
+          20
+        ]
+      ],
+      "skill": [
+        [
+          "general",
+          20
+        ]
+      ]
+    },
+    "Tableau_epreuves_DD_AS.pdf": {
+      "child_count": 20,
+      "doc_type": [
+        [
+          "manuel",
+          20
+        ]
+      ],
+      "level": [
+        [
+          "general",
+          20
+        ]
+      ],
+      "skill": [
+        [
+          "general",
+          20
+        ]
+      ]
+    },
+    "WhatsApp Image 2025-06-01 at 21.37.31.jpeg": {
+      "child_count": 19,
+      "doc_type": [
+        [
+          "other",
+          19
+        ]
+      ],
+      "level": [
+        [
+          "C1",
+          19
+        ]
+      ],
+      "skill": [
+        [
+          "general",
+          19
+        ]
+      ]
+    },
+    "B1_Descripteurs_PE.pdf": {
+      "child_count": 19,
+      "doc_type": [
+        [
+          "descripteur",
+          19
+        ]
+      ],
+      "level": [
+        [
+          "B1",
+          19
+        ]
+      ],
+      "skill": [
+        [
+          "PE",
+          19
+        ]
+      ]
+    },
+    "Introduction_critères_corriges.docx": {
+      "child_count": 18,
+      "doc_type": [
+        [
+          "methodologie",
+          18
+        ]
+      ],
+      "level": [
+        [
+          "general",
+          18
+        ]
+      ],
+      "skill": [
+        [
+          "general",
+          18
+        ]
+      ]
+    },
+    "A2_Descripteurs_PE.pdf": {
+      "child_count": 17,
+      "doc_type": [
+        [
+          "descripteur",
+          17
+        ]
+      ],
+      "level": [
+        [
+          "A2",
+          17
+        ]
+      ],
+      "skill": [
+        [
+          "PE",
+          17
+        ]
+      ]
+    },
+    "FEI_presentation_courte.pptx": {
+      "child_count": 14,
+      "doc_type": [
+        [
+          "manuel",
+          14
+        ]
+      ],
+      "level": [
+        [
+          "general",
+          14
+        ]
+      ],
+      "skill": [
+        [
+          "general",
+          14
+        ]
+      ]
+    },
+    "brouillon du cerveau - Alanur Bagci (1).pdf": {
+      "child_count": 13,
+      "doc_type": [
+        [
+          "other",
+          13
+        ]
+      ],
+      "level": [
+        [
+          "C1",
+          13
+        ]
+      ],
+      "skill": [
+        [
+          "general",
+          13
+        ]
+      ]
+    },
+    "brouillon du cerveau - Alanur Bagci.pdf": {
+      "child_count": 13,
+      "doc_type": [
+        [
+          "other",
+          13
+        ]
+      ],
+      "level": [
+        [
+          "C1",
+          13
+        ]
+      ],
+      "skill": [
+        [
+          "general",
+          13
+        ]
+      ]
+    },
+    "Niveaux_CECRL_PE_V2.pdf": {
+      "child_count": 13,
+      "doc_type": [
+        [
+          "descripteur",
+          13
+        ]
+      ],
+      "level": [
+        [
+          "general",
+          13
+        ]
+      ],
+      "skill": [
+        [
+          "PE",
+          13
+        ]
+      ]
+    },
+    "A1_Grille_PE.pdf": {
+      "child_count": 12,
+      "doc_type": [
+        [
+          "grille",
+          12
+        ]
+      ],
+      "level": [
+        [
+          "A1",
+          12
+        ]
+      ],
+      "skill": [
+        [
+          "PE",
+          12
+        ]
+      ]
+    },
+    "A2_Grille_PE.pdf": {
+      "child_count": 12,
+      "doc_type": [
+        [
+          "grille",
+          12
+        ]
+      ],
+      "level": [
+        [
+          "A2",
+          12
+        ]
+      ],
+      "skill": [
+        [
+          "PE",
+          12
+        ]
+      ]
+    },
+    "B1_Grille_PE.pdf": {
+      "child_count": 12,
+      "doc_type": [
+        [
+          "grille",
+          12
+        ]
+      ],
+      "level": [
+        [
+          "B1",
+          12
+        ]
+      ],
+      "skill": [
+        [
+          "PE",
+          12
+        ]
+      ]
+    },
+    "B2_Grille_PE.pdf": {
+      "child_count": 12,
+      "doc_type": [
+        [
+          "grille",
+          12
+        ]
+      ],
+      "level": [
+        [
+          "B2",
+          12
+        ]
+      ],
+      "skill": [
+        [
+          "PE",
+          12
+        ]
+      ]
+    },
+    "niveaux_mots_cles.pdf": {
+      "child_count": 11,
+      "doc_type": [
+        [
+          "descripteur",
+          11
+        ]
+      ],
+      "level": [
+        [
+          "general",
+          11
+        ]
+      ],
+      "skill": [
+        [
+          "general",
+          11
+        ]
+      ]
+    },
+    "A1_Grille_PO.pdf": {
+      "child_count": 9,
+      "doc_type": [
+        [
+          "grille",
+          9
+        ]
+      ],
+      "level": [
+        [
+          "A1",
+          9
+        ]
+      ],
+      "skill": [
+        [
+          "PO",
+          9
+        ]
+      ]
+    },
+    "A2_Grille_PO.pdf": {
+      "child_count": 9,
+      "doc_type": [
+        [
+          "grille",
+          9
+        ]
+      ],
+      "level": [
+        [
+          "A2",
+          9
+        ]
+      ],
+      "skill": [
+        [
+          "PO",
+          9
+        ]
+      ]
+    },
+    "B1_Grille_PO.pdf": {
+      "child_count": 9,
+      "doc_type": [
+        [
+          "grille",
+          9
+        ]
+      ],
+      "level": [
+        [
+          "B1",
+          9
+        ]
+      ],
+      "skill": [
+        [
+          "PO",
+          9
+        ]
+      ]
+    },
+    "B2_Grille_PO.pdf": {
+      "child_count": 9,
+      "doc_type": [
+        [
+          "grille",
+          9
+        ]
+      ],
+      "level": [
+        [
+          "B2",
+          9
+        ]
+      ],
+      "skill": [
+        [
+          "PO",
+          9
+        ]
+      ]
+    },
+    "WhatsApp Image 2025-06-01 at 21.39.51 (1).jpeg": {
+      "child_count": 8,
+      "doc_type": [
+        [
+          "other",
+          8
+        ]
+      ],
+      "level": [
+        [
+          "C1",
+          8
+        ]
+      ],
+      "skill": [
+        [
+          "general",
+          8
+        ]
+      ]
+    },
+    "WhatsApp Image 2025-06-01 at 21.39.51.jpeg": {
+      "child_count": 8,
+      "doc_type": [
+        [
+          "other",
+          8
+        ]
+      ],
+      "level": [
+        [
+          "C1",
+          8
+        ]
+      ],
+      "skill": [
+        [
+          "general",
+          8
+        ]
+      ]
+    },
+    "WhatsApp Image 2025-06-01 at 21.39.17.jpeg": {
+      "child_count": 5,
+      "doc_type": [
+        [
+          "other",
+          5
+        ]
+      ],
+      "level": [
+        [
+          "C1",
+          5
+        ]
+      ],
+      "skill": [
+        [
+          "general",
+          5
+        ]
+      ]
+    }
+  }
+}

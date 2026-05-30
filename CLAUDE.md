@@ -97,7 +97,7 @@ User query
 | `ENABLE_HYBRID_SEARCH` | `true` | — | Active |
 | `ENABLE_CONFIDENCE_SCORING` | `true` | — | Active; second LLM pass per generation |
 | `ENABLE_QUERY_REWRITING` | `false` | — | Off — slow, 3× LLM calls at retrieval time |
-| `ENABLE_RERANKING` | `false` | — | Off — LLM-as-reranker adds 1 LLM call (latency/cost). On = over-fetch `RERANK_FETCH_K` (20) candidates → rerank to top_k. Quality win, not speed. |
+| `ENABLE_RERANKING` | `false` | — | Off — LLM-as-reranker adds 1 LLM call (latency/cost). On = over-fetch `RERANK_FETCH_K` (20) candidates → rerank to top_k. Quality win, not speed. **Phase 2 (2026-05-30) live measurement on the fixed 50-Q eval: best non-destructive lever — recall@5 0.79→0.83 (grille 0.50→0.85, TR 0.79→0.90), but noisy (FR 0.79→0.77) and still < 0.90 M3 line. Recommended ON, insufficient alone.** |
 | `ENABLE_CROSS_LINGUAL_BM25` | `false` | — | Off — cross-lingual (TR query → FR corpus) queries fall back to dense-only. Retrieval eval showed BM25+translation gives **no** recall/MRR gain on TR queries but costs a ~0.6–1.1s translation LLM call. Same-language (FR) queries stay hybrid (BM25 helps ranking there). On = restore TR→FR translation + hybrid. |
 | `MOCK_MODE` | `false` | — | Off; set to `true` for UI testing without API |
 

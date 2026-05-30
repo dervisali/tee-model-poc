@@ -15,3 +15,8 @@ scratch.py
 *.key
 *.pptx
 screenshots/
+
+# Korpus imaja GÖMÜLMEZ (Phase 1) — durağanlaşmayı önler, GCS senkronizasyonunu zorunlu kılar.
+# Yerel docker-compose, ./chroma_db bind-mount'u ile korpusu yine de görür.
+chroma_db/
+.chroma_staging/

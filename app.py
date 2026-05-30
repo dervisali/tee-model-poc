@@ -56,6 +56,58 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
+
+# ---------------------------------------------------------------------------
+# Korpus kalıcılık güvencesi (Phase 1) — açılışta net durum, gizemli hata yok
+#
+# backend="gcs" iken korpus süreç başına bir kez GCS'ten indirilir; korpus
+# hazır değilse tek bir net banner gösterilir (her sekmede derinlerde patlayan
+# ValueError yerine). backend="local" ve MOCK_MODE'da davranış değişmez.
+# ---------------------------------------------------------------------------
+@st.cache_resource(show_spinner="Korpus hazırlanıyor (GCS senkronizasyonu)...")
+def _sync_corpus_once():
+    """GCS backend'inde korpusu süreç başına bir kez indirir; hata mesajını döndürür."""
+    if (
+        settings.PERSISTENCE_BACKEND == "gcs"
+        and settings.SYNC_ON_STARTUP
+        and not settings.MOCK_MODE
+    ):
+        from src.bootstrap import ensure_corpus_ready
+
+        try:
+            return ensure_corpus_ready(run_smoke=False).error
+        except Exception as exc:  # noqa: BLE001 - banner ile göster, traceback ile çökme
+            logger.error("Açılış GCS senkronizasyonu başarısız: %s", exc)
+            return str(exc)
+    return None
+
+
+def _render_corpus_guard():
+    """Korpus hazır değilse net bir banner gösterir; üretimde uygulamayı durdurur."""
+    if settings.MOCK_MODE:
+        return
+    sync_error = _sync_corpus_once()
+    from src.readiness_check import check_readiness
+
+    ready = check_readiness(run_smoke=False)  # ucuz: dosya + koleksiyon sayımı (Vertex yok)
+    if ready.ok:
+        return
+    st.error("⚠️ Korpus şu anda kullanılamıyor — sorgulara dayanıklı yanıt verilemeyebilir.")
+    with st.expander("Korpus durumu (ayrıntılar)"):
+        if sync_error:
+            st.write(f"GCS senkronizasyonu: {sync_error}")
+        for failure in ready.failures:
+            st.write(f"- {failure}")
+        st.caption(
+            "Üretimde bu durum bir dağıtım hatasıdır. Yerelde Tab 0'dan "
+            "'Veritabanını Yenile' ile ingest edebilirsiniz."
+        )
+    if settings.REQUIRE_CORPUS_ON_STARTUP:
+        st.stop()
+
+
+_render_corpus_guard()
+
 # ---------------------------------------------------------------------------
 # Custom CSS — red left border for error cards, general polish
 # ---------------------------------------------------------------------------

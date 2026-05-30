@@ -460,7 +460,32 @@ def run_ingestion(chunking_strategy: str | None = None) -> dict:
         summary["total_documents"], summary["total_chunks"],
         summary["collection_size"], summary["by_doc_type"],
     )
+
+    # Phase 1 — kalıcılık: GCS backend'inde yeni korpusu anlık görüntü olarak yayınla.
+    # (Yalnızca admin/ingestion yolunda; sunum yolunda asla çağrılmaz.)
+    _maybe_publish_snapshot(summary)
+
     return summary
+
+
+def _maybe_publish_snapshot(summary: dict) -> None:
+    """backend='gcs' ise yerel korpusu tek tar.gz anlık görüntü olarak GCS'e yayınlar."""
+    if not (settings.PERSISTENCE_BACKEND == "gcs" and settings.GCS_BUCKET):
+        return
+    try:
+        from src.persistence import publish_snapshot
+
+        snapshot_object = publish_snapshot(
+            settings.CHROMA_DIR,
+            bucket=settings.GCS_BUCKET,
+            prefix=settings.GCS_SNAPSHOT_PREFIX,
+            child_count=summary["collection_size"],
+            parent_count=len(_load_parents()),
+        )
+        summary["snapshot_object"] = snapshot_object
+        logger.info("Korpus anlık görüntüsü GCS'e yayınlandı: %s", snapshot_object)
+    except Exception as exc:  # noqa: BLE001 - yayın hatası ingestion'ı bozmamalı
+        logger.error("GCS anlık görüntü yayınlama başarısız: %s", exc)
 
 
 def clear_and_reingest() -> dict:

@@ -1,12 +1,20 @@
 {
   "metadata": {
-    "version": "1.0",
-    "created": "2026-05-28",
-    "description": "DELF/DALF sınavcı-düzeltici (examiner-correcteur) RAGAS değerlendirme seti. Sorular bilingual (TR + FR) — cross-lingual retrieval yolunu (TR sorgu → FR korpus) test eder. Referans cevaplar new_docs/ korpusundaki gerçek içeriğe dayanır (grille, descripteur, methodologie, manuel-exacor double correction kılavuzu, copies atypiques).",
-    "total_questions": 18,
-    "language_split": {"tr": 9, "fr": 9},
-    "coverage_note": "A1-C1 seviyeleri, PE/PO becerileri, grille/descripteur/methodologie/manuel/copie doc_type'ları kapsanır.",
-    "grounding": "Her referans cevap, retrieve_context ile geri-getirilebilen parent chunk'larda doğrulandı (manuel-exacor.pdf, B2_Grille_PO.pdf, Echelle globale.pdf, Diaporama_rôle_EC_VF.pptx, Présentation_copies_atypiques_VF.pptx, PO_B1.pdf, A1_stagiaire.pdf)."
+    "version": "2.0",
+    "created": "2026-05-29",
+    "description": "DELF/DALF sınavcı-düzeltici (examiner-correcteur) bilingual değerlendirme seti. Sorular TR + FR; cross-lingual retrieval yolunu (TR sorgu → FR korpus) ve same-language (FR) yolunu test eder. v2.0: expected_sources alanları, ChromaDB'den okunan gerçek korpus dosya adlarına (source_filename metadata) yeniden eşlendi.",
+    "total_questions": 50,
+    "language_split": {
+      "tr": 24,
+      "fr": 26
+    },
+    "split_distribution": {
+      "dev": 36,
+      "held_out": 14
+    },
+    "schema_note": "Her soruda hem `question`/`ground_truth` (birincil dil — RAGAS geriye uyumluluğu) hem de `question_tr`/`question_fr`/`expected_answer_tr`/`expected_answer_fr` bulunur. `expected_sources` recall ölçümü için kullanılır ve YALNIZCA gerçek korpus dosya adları içerir. `split` ∈ {dev, held_out} (~70/30 stratified). `type` ∈ {factoid, definition, analytical, procedural}.",
+    "validation": "PROVISIONAL. Tüm expected_sources değerleri ChromaDB child metadata'sından okunan içeriğe göre OTOMATİK olarak gerçek korpus dosyalarına eşlendi (eski v1.0 dosya adları kurgusaldı). Referans cevaplar korpus chunk'larından temellendirildi ANCAK hiçbiri DELF uzmanı tarafından doğrulanmadı. Her soru validation_status='UNVALIDATED_NEEDS_DELF_EXPERT' taşır. M3/M4 kapıları, bu set bir DELF uzmanı tarafından doğrulanana kadar SERTİFİKALI sayılmamalıdır.",
+    "coverage_note": "A1-C2 seviyeleri; PE/PO/CE/CO becerileri; grille/descripteur/methodologie/copie/glossaire/guide/procedure/presentation doc_type/kategorileri kapsanır."
   },
   "questions": [
     {
@@ -15,7 +23,17 @@
       "level": "general",
       "skill": "general",
       "question": "DELF/DALF'ta epreuvelerin güvenilirliği ve geçerliliği için kaç değerlendirici görevlendirilir?",
-      "ground_truth": "Çift değerlendirme (double évaluation) uygulanır: bireysel epreuvede (production orale) 2 examinateur, kolektif epreuvelerde (yazılı bölümler) 2 correcteur görev alır. Amaç değerlendirmenin fidélité (güvenilirlik) ve validité (geçerlilik) sağlamaktır."
+      "ground_truth": "Çift değerlendirme (double évaluation) uygulanır: bireysel epreuvede (production orale) 2 examinateur, kolektif epreuvelerde (yazılı bölümler) 2 correcteur görev alır. Amaç değerlendirmenin fidélité (güvenilirlik) ve validité (geçerlilik) sağlamaktır.",
+      "language": "tr",
+      "type": "factoid",
+      "difficulty": "easy",
+      "expected_sources": [
+        "manuel-exacor.pdf",
+        "Diaporama_rôle_EC_VF.pptx"
+      ],
+      "answerable": true,
+      "split": "dev",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
     },
     {
       "id": "d02",
@@ -23,7 +41,16 @@
       "level": "general",
       "skill": "general",
       "question": "İkinci düzeltici (correcteur n°2) bir kopyayı düzeltirken hangi rengi kullanmalı ve hangi üç durumla karşılaşabilir?",
-      "ground_truth": "İkinci düzeltici, birinci düzelticininkinden farklı renkte bir kalem kullanır. Üç durum vardır: (1) iki düzeltici arasında hiçbir fark yoksa harmonizasyon gerekmez, ikinci düzeltici notu görünür bir işaretle onaylar; (2) puan sayımı/hesabında hata veya açık bir barem hatası varsa ikinci düzeltici hatayı çizip puanı ve toplam notu düzeltir; (3) bir görüş ayrılığı (désaccord) varsa ilgili sorular kurşun kalemle soru işaretiyle işaretlenir ve iki düzeltici arasında harmonizasyon/concertation yapılır."
+      "ground_truth": "İkinci düzeltici, birinci düzelticininkinden farklı renkte bir kalem kullanır. Üç durum vardır: (1) iki düzeltici arasında hiçbir fark yoksa harmonizasyon gerekmez, ikinci düzeltici notu görünür bir işaretle onaylar; (2) puan sayımı/hesabında hata veya açık bir barem hatası varsa ikinci düzeltici hatayı çizip puanı ve toplam notu düzeltir; (3) bir görüş ayrılığı (désaccord) varsa ilgili sorular kurşun kalemle soru işaretiyle işaretlenir ve iki düzeltici arasında harmonizasyon/concertation yapılır.",
+      "language": "tr",
+      "type": "procedural",
+      "difficulty": "hard",
+      "expected_sources": [
+        "manuel-exacor.pdf"
+      ],
+      "answerable": true,
+      "split": "dev",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
     },
     {
       "id": "d03",
@@ -31,7 +58,16 @@
       "level": "general",
       "skill": "PE",
       "question": "Üretilen yazıda kelime sayımı (décompte des mots) nasıl yapılır ve hangi öğeler sayılır?",
-      "ground_truth": "Adayın ürettiği her şey — adayın çizdiği/karaladığı sözcükler hariç — kelime sayımına dahil edilir; buna tarih, mektubun konusu (objet), imza gibi öğeler de girer ve bu kural A1'den C2'ye tüm seviyeler için geçerlidir. Örnek sayım kuralları: «un sujet» = 2 kelime, «c'est-à-dire» = 1 kelime, «je l'ai vu avant-hier» = 4 kelime."
+      "ground_truth": "Adayın ürettiği her şey — adayın çizdiği/karaladığı sözcükler hariç — kelime sayımına dahil edilir; buna tarih, mektubun konusu (objet), imza gibi öğeler de girer ve bu kural A1'den C2'ye tüm seviyeler için geçerlidir. Örnek sayım kuralları: «un sujet» = 2 kelime, «c'est-à-dire» = 1 kelime, «je l'ai vu avant-hier» = 4 kelime.",
+      "language": "tr",
+      "type": "procedural",
+      "difficulty": "medium",
+      "expected_sources": [
+        "manuel-exacor.pdf"
+      ],
+      "answerable": true,
+      "split": "dev",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
     },
     {
       "id": "d04",
@@ -39,7 +75,17 @@
       "level": "general",
       "skill": "PE",
       "question": "Minimum kelime sayısına uyulmaması değerlendirmede nasıl bir sonuç doğurur?",
-      "ground_truth": "Üretilmesi gereken minimum kelime sayısına uyulmaması puan açısından bir yaptırıma (sanction) yol açabilir; bunun kesin göstergeleri değerlendirme grilinde «anomalies» (anormallikler) bölümünde belirtilir."
+      "ground_truth": "Üretilmesi gereken minimum kelime sayısına uyulmaması puan açısından bir yaptırıma (sanction) yol açabilir; bunun kesin göstergeleri değerlendirme grilinde «anomalies» (anormallikler) bölümünde belirtilir.",
+      "language": "tr",
+      "type": "factoid",
+      "difficulty": "medium",
+      "expected_sources": [
+        "manuel-exacor.pdf",
+        "Introduction_critères_corriges.docx"
+      ],
+      "answerable": true,
+      "split": "held_out",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
     },
     {
       "id": "d05",
@@ -47,7 +93,17 @@
       "level": "general",
       "skill": "PE",
       "question": "Tam hors-sujet (hem tematik hem söylemsel konu dışı) bir kopya nasıl puanlanır?",
-      "ground_truth": "Tam hors-sujet durumunda aday; Réalisation de la tâche, Cohérence et cohésion ve Adéquation sociolinguistique kriterlerinden 0 alır. Lexique ve Morphosyntaxe kriterlerinde ise aday ne «Au niveau» ne de «Au niveau +» olarak tanımlanabilir."
+      "ground_truth": "Tam hors-sujet durumunda aday; Réalisation de la tâche, Cohérence et cohésion ve Adéquation sociolinguistique kriterlerinden 0 alır. Lexique ve Morphosyntaxe kriterlerinde ise aday ne «Au niveau» ne de «Au niveau +» olarak tanımlanabilir.",
+      "language": "tr",
+      "type": "analytical",
+      "difficulty": "hard",
+      "expected_sources": [
+        "manuel-exacor.pdf",
+        "Présentation_copies_atypiques_VF.pptx"
+      ],
+      "answerable": true,
+      "split": "dev",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
     },
     {
       "id": "d06",
@@ -55,7 +111,17 @@
       "level": "B2",
       "skill": "PO",
       "question": "DELF B2 sözlü üretim (production orale) sınavında iki bölümün süreleri nedir?",
-      "ground_truth": "DELF B2 production orale iki bölümden oluşur: monologue suivi (sürekli monolog) 5 ila 7 dakika, exercice en interaction (etkileşimli alıştırma) ise 10 ila 13 dakika sürer."
+      "ground_truth": "DELF B2 production orale iki bölümden oluşur: monologue suivi (sürekli monolog) 5 ila 7 dakika, exercice en interaction (etkileşimli alıştırma) ise 10 ila 13 dakika sürer.",
+      "language": "tr",
+      "type": "factoid",
+      "difficulty": "easy",
+      "expected_sources": [
+        "B2_Grille_PO.pdf",
+        "PO_B2.pdf"
+      ],
+      "answerable": true,
+      "split": "dev",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
     },
     {
       "id": "d07",
@@ -63,7 +129,17 @@
       "level": "B2",
       "skill": "PO",
       "question": "DELF B2 production orale değerlendirme grilinde kriterler hangi puanlarla derecelendirilir?",
-      "ground_truth": "B2 production orale grilinde her kriter 0, 1, 3 ve 5 puan basamaklarıyla derecelendirilir (Non répondu / En dessous du niveau ciblé / Au niveau ciblé B2 / B2+). Kriterler arasında Réalisation de la tâche (monologue suivi ve exercice en interaction), Lexique ve Morphosyntaxe yer alır."
+      "ground_truth": "B2 production orale grilinde her kriter 0, 1, 3 ve 5 puan basamaklarıyla derecelendirilir (Non répondu / En dessous du niveau ciblé / Au niveau ciblé B2 / B2+). Kriterler arasında Réalisation de la tâche (monologue suivi ve exercice en interaction), Lexique ve Morphosyntaxe yer alır.",
+      "language": "tr",
+      "type": "factoid",
+      "difficulty": "medium",
+      "expected_sources": [
+        "B2_Grille_PO.pdf",
+        "PO_B2.pdf"
+      ],
+      "answerable": true,
+      "split": "held_out",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
     },
     {
       "id": "d08",
@@ -71,7 +147,17 @@
       "level": "A1",
       "skill": "PO",
       "question": "A1 seviyesinde sözlü üretimin ilk görevi olan yönlendirilmiş görüşmede (entretien dirigé) adaydan ne beklenir?",
-      "ground_truth": "A1 entretien dirigé görevinde adayın kendini tanıtması ve kimliği ile yakın çevresi (isim, yaş, aile, milliyet vb.) hakkında basit terimlerle, art arda sıralanmış (juxtaposées) fikirler biçiminde konuşabilmesi beklenir. Hedef seviyede aday basit ve öngörülebilir sorulara yanıt verebilir; bazı sorular anlaşılmayabilir."
+      "ground_truth": "A1 entretien dirigé görevinde adayın kendini tanıtması ve kimliği ile yakın çevresi (isim, yaş, aile, milliyet vb.) hakkında basit terimlerle, art arda sıralanmış (juxtaposées) fikirler biçiminde konuşabilmesi beklenir. Hedef seviyede aday basit ve öngörülebilir sorulara yanıt verebilir; bazı sorular anlaşılmayabilir.",
+      "language": "tr",
+      "type": "definition",
+      "difficulty": "medium",
+      "expected_sources": [
+        "A1_Descripteurs_PO.pdf",
+        "A1_Grille_PO.pdf"
+      ],
+      "answerable": true,
+      "split": "dev",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
     },
     {
       "id": "d09",
@@ -79,7 +165,16 @@
       "level": "general",
       "skill": "general",
       "question": "CECRL küresel ölçeğine (échelle globale) göre A1 seviyesindeki bir kullanıcı neler yapabilir?",
-      "ground_truth": "A1 kullanıcısı somut ihtiyaçları karşılamaya yönelik tanıdık ve günlük ifadeleri ve çok basit cümleleri anlayıp kullanabilir; kendini veya başkasını tanıtabilir, bir kişiye yaşadığı yer, ilişkileri, sahip oldukları gibi konularda sorular sorabilir ve aynı türden sorulara yanıt verebilir; muhatabı yavaş ve net konuşursa basit biçimde iletişim kurabilir."
+      "ground_truth": "A1 kullanıcısı somut ihtiyaçları karşılamaya yönelik tanıdık ve günlük ifadeleri ve çok basit cümleleri anlayıp kullanabilir; kendini veya başkasını tanıtabilir, bir kişiye yaşadığı yer, ilişkileri, sahip oldukları gibi konularda sorular sorabilir ve aynı türden sorulara yanıt verebilir; muhatabı yavaş ve net konuşursa basit biçimde iletişim kurabilir.",
+      "language": "tr",
+      "type": "definition",
+      "difficulty": "easy",
+      "expected_sources": [
+        "Echelle globale.pdf"
+      ],
+      "answerable": true,
+      "split": "dev",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
     },
     {
       "id": "d10",
@@ -87,7 +182,17 @@
       "level": "general",
       "skill": "general",
       "question": "Combien de correcteurs interviennent dans la double évaluation des épreuves du DELF/DALF, et pourquoi ?",
-      "ground_truth": "La double évaluation prévoit 2 examinateurs pour l'épreuve individuelle (production orale) et 2 correcteurs pour les épreuves collectives (écrites). Ce dispositif vise à garantir la fidélité et la validité des évaluations."
+      "ground_truth": "La double évaluation prévoit 2 examinateurs pour l'épreuve individuelle (production orale) et 2 correcteurs pour les épreuves collectives (écrites). Ce dispositif vise à garantir la fidélité et la validité des évaluations.",
+      "language": "fr",
+      "type": "factoid",
+      "difficulty": "easy",
+      "expected_sources": [
+        "manuel-exacor.pdf",
+        "Diaporama_rôle_EC_VF.pptx"
+      ],
+      "answerable": true,
+      "split": "dev",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
     },
     {
       "id": "d11",
@@ -95,7 +200,16 @@
       "level": "general",
       "skill": "general",
       "question": "Que fait le correcteur n°2 lorsqu'il observe un désaccord (et non une simple erreur de calcul) avec le correcteur n°1 ?",
-      "ground_truth": "En cas de désaccord, le correcteur n°2 signale discrètement les questions concernées (par exemple avec un point d'interrogation au crayon de papier) afin de les identifier rapidement, puis une concertation/harmonisation entre les deux correcteurs est organisée. Il utilise un stylo d'une couleur différente de celle du correcteur n°1."
+      "ground_truth": "En cas de désaccord, le correcteur n°2 signale discrètement les questions concernées (par exemple avec un point d'interrogation au crayon de papier) afin de les identifier rapidement, puis une concertation/harmonisation entre les deux correcteurs est organisée. Il utilise un stylo d'une couleur différente de celle du correcteur n°1.",
+      "language": "fr",
+      "type": "procedural",
+      "difficulty": "hard",
+      "expected_sources": [
+        "manuel-exacor.pdf"
+      ],
+      "answerable": true,
+      "split": "held_out",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
     },
     {
       "id": "d12",
@@ -103,7 +217,17 @@
       "level": "B1",
       "skill": "PO",
       "question": "Au niveau B1 en production orale, que doit faire l'examinateur si la production du candidat est trop courte, et que valorise-t-il ?",
-      "ground_truth": "Si la production est trop courte, l'examinateur doit relancer le candidat ou lui demander des précisions. Au niveau B1 on attend une argumentation non complexe et linéaire ; l'examinateur valorise l'organisation du discours, notamment les articulateurs tels que « d'abord/après/enfin » et les locutions exprimant la cause et la conséquence."
+      "ground_truth": "Si la production est trop courte, l'examinateur doit relancer le candidat ou lui demander des précisions. Au niveau B1 on attend une argumentation non complexe et linéaire ; l'examinateur valorise l'organisation du discours, notamment les articulateurs tels que « d'abord/après/enfin » et les locutions exprimant la cause et la conséquence.",
+      "language": "fr",
+      "type": "analytical",
+      "difficulty": "medium",
+      "expected_sources": [
+        "PO_B1.pdf",
+        "B1_Grille_PO.pdf"
+      ],
+      "answerable": true,
+      "split": "dev",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
     },
     {
       "id": "d13",
@@ -111,7 +235,16 @@
       "level": "general",
       "skill": "PE",
       "question": "Quelle est la règle de décompte des mots en production écrite, et donnez des exemples de comptage.",
-      "ground_truth": "Tout ce qui est produit par le candidat — sauf les mots ou ensembles de signes barrés ou raturés — doit être comptabilisé (y compris la date, l'objet de la lettre, la signature, etc.), quel que soit le niveau de A1 à C2. Exemples : « un sujet » = 2 mots, « c'est-à-dire » = 1 mot, « je l'ai vu avant-hier » = 4 mots."
+      "ground_truth": "Tout ce qui est produit par le candidat — sauf les mots ou ensembles de signes barrés ou raturés — doit être comptabilisé (y compris la date, l'objet de la lettre, la signature, etc.), quel que soit le niveau de A1 à C2. Exemples : « un sujet » = 2 mots, « c'est-à-dire » = 1 mot, « je l'ai vu avant-hier » = 4 mots.",
+      "language": "fr",
+      "type": "procedural",
+      "difficulty": "medium",
+      "expected_sources": [
+        "manuel-exacor.pdf"
+      ],
+      "answerable": true,
+      "split": "held_out",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
     },
     {
       "id": "d14",
@@ -119,7 +252,17 @@
       "level": "general",
       "skill": "PE",
       "question": "Comment évalue-t-on une copie en hors-sujet complet (thématique et discursif) en production écrite ?",
-      "ground_truth": "En cas de hors-sujet complet, le candidat obtient la note de 0 aux critères Réalisation de la tâche, Cohérence et cohésion et Adéquation sociolinguistique. Pour les critères Lexique et Morphosyntaxe, le candidat ne peut être identifié ni « Au niveau » ni « Au niveau + »."
+      "ground_truth": "En cas de hors-sujet complet, le candidat obtient la note de 0 aux critères Réalisation de la tâche, Cohérence et cohésion et Adéquation sociolinguistique. Pour les critères Lexique et Morphosyntaxe, le candidat ne peut être identifié ni « Au niveau » ni « Au niveau + ».",
+      "language": "fr",
+      "type": "analytical",
+      "difficulty": "hard",
+      "expected_sources": [
+        "manuel-exacor.pdf",
+        "Présentation_copies_atypiques_VF.pptx"
+      ],
+      "answerable": true,
+      "split": "dev",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
     },
     {
       "id": "d15",
@@ -127,7 +270,17 @@
       "level": "B2",
       "skill": "PO",
       "question": "Quelles sont les durées des deux parties de l'épreuve de production orale du DELF B2 ?",
-      "ground_truth": "La production orale du DELF B2 comprend un monologue suivi de 5 à 7 minutes et un exercice en interaction de 10 à 13 minutes."
+      "ground_truth": "La production orale du DELF B2 comprend un monologue suivi de 5 à 7 minutes et un exercice en interaction de 10 à 13 minutes.",
+      "language": "fr",
+      "type": "factoid",
+      "difficulty": "easy",
+      "expected_sources": [
+        "B2_Grille_PO.pdf",
+        "PO_B2.pdf"
+      ],
+      "answerable": true,
+      "split": "dev",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
     },
     {
       "id": "d16",
@@ -135,7 +288,17 @@
       "level": "general",
       "skill": "general",
       "question": "Quel est le rôle de l'examinateur-correcteur dans le dispositif DELF/DALF ?",
-      "ground_truth": "L'examinateur-correcteur du DELF et du DALF participe à l'évaluation des épreuves. Dans le cadre de la double évaluation, il intervient comme examinateur pour l'épreuve individuelle (production orale) ou comme correcteur pour les épreuves collectives, afin de garantir la fidélité et la validité des évaluations."
+      "ground_truth": "L'examinateur-correcteur du DELF et du DALF participe à l'évaluation des épreuves. Dans le cadre de la double évaluation, il intervient comme examinateur pour l'épreuve individuelle (production orale) ou comme correcteur pour les épreuves collectives, afin de garantir la fidélité et la validité des évaluations.",
+      "language": "fr",
+      "type": "definition",
+      "difficulty": "easy",
+      "expected_sources": [
+        "manuel-exacor.pdf",
+        "Diaporama_rôle_EC_VF.pptx"
+      ],
+      "answerable": true,
+      "split": "held_out",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
     },
     {
       "id": "d17",
@@ -143,7 +306,16 @@
       "level": "general",
       "skill": "PE",
       "question": "Le critère lexical peut-il être pénalisé même si le candidat respecte la consigne ? Dans quel cas ?",
-      "ground_truth": "Oui. Quel que soit le niveau, les correcteurs pénalisent le candidat dans le critère lexical si le vocabulaire employé par ailleurs dans la production est trop pauvre et/ou répétitif."
+      "ground_truth": "Oui. Quel que soit le niveau, les correcteurs pénalisent le candidat dans le critère lexical si le vocabulaire employé par ailleurs dans la production est trop pauvre et/ou répétitif.",
+      "language": "fr",
+      "type": "analytical",
+      "difficulty": "medium",
+      "expected_sources": [
+        "manuel-exacor.pdf"
+      ],
+      "answerable": true,
+      "split": "dev",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
     },
     {
       "id": "d18",
@@ -151,7 +323,696 @@
       "level": "general",
       "skill": "general",
       "question": "İki düzeltici arasında hiçbir fark olmadığında harmonizasyon (harmonisation) gerekir mi ve ikinci düzeltici ne yapar?",
-      "ground_truth": "Hayır, iki düzeltici arasında hiçbir fark gözlenmediğinde harmonizasyon yapılmaz. İkinci düzeltici, birinci düzelticininkinden farklı renkte bir kalemle egzersiz notunu görünür bir işaretle onaylar ve nihai notları kapak sayfasına (page de garde) aktarır."
+      "ground_truth": "Hayır, iki düzeltici arasında hiçbir fark gözlenmediğinde harmonizasyon yapılmaz. İkinci düzeltici, birinci düzelticininkinden farklı renkte bir kalemle egzersiz notunu görünür bir işaretle onaylar ve nihai notları kapak sayfasına (page de garde) aktarır.",
+      "language": "tr",
+      "type": "procedural",
+      "difficulty": "hard",
+      "expected_sources": [
+        "manuel-exacor.pdf"
+      ],
+      "answerable": true,
+      "split": "held_out",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
+    },
+    {
+      "id": "d19",
+      "category": "descripteur",
+      "level": "general",
+      "skill": "general",
+      "question": "Combien de niveaux compte le CECRL et comment sont-ils regroupés ?",
+      "ground_truth": "Le CECRL compte six niveaux : A1 et A2 (utilisateur élémentaire), B1 et B2 (utilisateur indépendant), C1 et C2 (utilisateur expérimenté). Chaque niveau est défini par des descripteurs de compétences.",
+      "language": "fr",
+      "type": "definition",
+      "difficulty": "easy",
+      "question_tr": "CECRL kaç seviyeden oluşur ve bunlar nasıl gruplanır?",
+      "question_fr": "Combien de niveaux compte le CECRL et comment sont-ils regroupés ?",
+      "expected_answer_tr": "CECRL altı seviyeden oluşur: A1 ve A2 (utilisateur élémentaire / temel kullanıcı), B1 ve B2 (utilisateur indépendant / bağımsız kullanıcı), C1 ve C2 (utilisateur expérimenté / deneyimli kullanıcı). Her seviye yetkinlik descripteur'leri ile tanımlanır.",
+      "expected_answer_fr": "Le CECRL compte six niveaux : A1 et A2 (utilisateur élémentaire), B1 et B2 (utilisateur indépendant), C1 et C2 (utilisateur expérimenté). Chaque niveau est défini par des descripteurs de compétences.",
+      "expected_sources": [
+        "Descripteurs_CECRL_A1_B2_VF_a_donner.pdf",
+        "Echelle globale.pdf"
+      ],
+      "answerable": true,
+      "split": "dev",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
+    },
+    {
+      "id": "d20",
+      "category": "presentation",
+      "level": "general",
+      "skill": "general",
+      "question": "DELF ve DALF diplomaları hangi CECRL seviyelerini kapsar?",
+      "ground_truth": "DELF (Diplôme d'études en langue française) A1'den B2'ye kadar olan seviyeleri kapsar; DALF (Diplôme approfondi de langue française) ise C1 ve C2 seviyelerini kapsar.",
+      "language": "tr",
+      "type": "factoid",
+      "difficulty": "easy",
+      "question_tr": "DELF ve DALF diplomaları hangi CECRL seviyelerini kapsar?",
+      "question_fr": "Quels niveaux du CECRL couvrent respectivement le DELF et le DALF ?",
+      "expected_answer_tr": "DELF (Diplôme d'études en langue française) A1'den B2'ye kadar olan seviyeleri kapsar; DALF (Diplôme approfondi de langue française) ise C1 ve C2 seviyelerini kapsar.",
+      "expected_answer_fr": "Le DELF (Diplôme d'études en langue française) couvre les niveaux A1 à B2 ; le DALF (Diplôme approfondi de langue française) couvre les niveaux C1 et C2.",
+      "expected_sources": [
+        "Dispositif_DELF-DALF_v2022.pptx"
+      ],
+      "answerable": true,
+      "split": "held_out",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
+    },
+    {
+      "id": "d21",
+      "category": "presentation",
+      "level": "general",
+      "skill": "general",
+      "question": "Quelle est la note totale requise et la note minimale par épreuve pour obtenir un diplôme DELF/DALF ?",
+      "ground_truth": "La note totale est sur 100 et le seuil de réussite est fixé à 50/100. Une note inférieure à 5/25 à l'une des épreuves est éliminatoire : dans ce cas le candidat est ajourné même si le total atteint 50.",
+      "language": "fr",
+      "type": "factoid",
+      "difficulty": "medium",
+      "question_tr": "Bir DELF/DALF diplomasını almak için gereken toplam ve epreuve başına minimum puan nedir?",
+      "question_fr": "Quelle est la note totale requise et la note minimale par épreuve pour obtenir un diplôme DELF/DALF ?",
+      "expected_answer_tr": "Toplam not 100 üzerindendir ve başarı eşiği 50/100'dür. Epreuvelerden birinde 5/25'in altında bir not eleyicidir (éliminatoire); bu durumda toplam 50'ye ulaşsa bile aday başarısız sayılır.",
+      "expected_answer_fr": "La note totale est sur 100 et le seuil de réussite est fixé à 50/100. Une note inférieure à 5/25 à l'une des épreuves est éliminatoire : dans ce cas le candidat est ajourné même si le total atteint 50.",
+      "expected_sources": [
+        "manuel-exacor.pdf"
+      ],
+      "answerable": true,
+      "split": "dev",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
+    },
+    {
+      "id": "d22",
+      "category": "presentation",
+      "level": "general",
+      "skill": "general",
+      "question": "Her DELF/DALF sınavı hangi dört epreuveden oluşur?",
+      "ground_truth": "Her diploma her bir dilsel beceriye karşılık gelen dört epreuveden oluşur: compréhension de l'oral (sözlü anlama), compréhension des écrits (yazılı anlama), production écrite (yazılı üretim) ve production orale (sözlü üretim).",
+      "language": "tr",
+      "type": "factoid",
+      "difficulty": "easy",
+      "question_tr": "Her DELF/DALF sınavı hangi dört epreuveden oluşur?",
+      "question_fr": "De quelles quatre épreuves se compose chaque examen DELF/DALF ?",
+      "expected_answer_tr": "Her diploma her bir dilsel beceriye karşılık gelen dört epreuveden oluşur: compréhension de l'oral (sözlü anlama), compréhension des écrits (yazılı anlama), production écrite (yazılı üretim) ve production orale (sözlü üretim).",
+      "expected_answer_fr": "Chaque diplôme se compose de quatre épreuves, une par compétence langagière : compréhension de l'oral, compréhension des écrits, production écrite et production orale.",
+      "expected_sources": [
+        "Dispositif_DELF-DALF_v2022.pptx",
+        "Tableau_epreuves_DD_AS.pdf"
+      ],
+      "answerable": true,
+      "split": "dev",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
+    },
+    {
+      "id": "d23",
+      "category": "copie",
+      "level": "general",
+      "skill": "PE",
+      "question": "Une copie où le candidat ne respecte que partiellement la consigne est-elle un hors-sujet ?",
+      "ground_truth": "Non. Si le candidat oublie un acte de parole, il s'agit d'un non-respect partiel de la consigne ; ce n'est pas un cas de hors-sujet.",
+      "language": "fr",
+      "type": "analytical",
+      "difficulty": "medium",
+      "question_tr": "Adayın talimata kısmen uyduğu (non-respect partiel de la consigne) bir kopya hors-sujet sayılır mı?",
+      "question_fr": "Une copie où le candidat ne respecte que partiellement la consigne est-elle un hors-sujet ?",
+      "expected_answer_tr": "Hayır. Aday bir söz edimini (acte de parole) atlarsa bu, talimata kısmi uyumsuzluktur ve bir hors-sujet durumu DEĞİLDİR.",
+      "expected_answer_fr": "Non. Si le candidat oublie un acte de parole, il s'agit d'un non-respect partiel de la consigne ; ce n'est pas un cas de hors-sujet.",
+      "expected_sources": [
+        "Présentation_copies_atypiques_VF.pptx"
+      ],
+      "answerable": true,
+      "split": "dev",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
+    },
+    {
+      "id": "d24",
+      "category": "copie",
+      "level": "general",
+      "skill": "PE",
+      "question": "« Copie atypique » nedir? Hangi farklı hors-sujet türleri vardır?",
+      "ground_truth": "Copie atypique, olağandışı/sıra dışı bir kopyadır. Farklı hors-sujet türleri arasında talimata kısmi uyumsuzluk (hors-sujet değildir), tematik hors-sujet ve söylemsel (discursif) hors-sujet bulunur; tam hors-sujet hem tematik hem söylemsel olandır.",
+      "language": "tr",
+      "type": "definition",
+      "difficulty": "medium",
+      "question_tr": "« Copie atypique » nedir? Hangi farklı hors-sujet türleri vardır?",
+      "question_fr": "Qu'est-ce qu'une « copie atypique » ? Quels sont les différents types de hors-sujet ?",
+      "expected_answer_tr": "Copie atypique, olağandışı/sıra dışı bir kopyadır. Farklı hors-sujet türleri arasında talimata kısmi uyumsuzluk (hors-sujet değildir), tematik hors-sujet ve söylemsel (discursif) hors-sujet bulunur; tam hors-sujet hem tematik hem söylemsel olandır.",
+      "expected_answer_fr": "Une copie atypique sort de l'ordinaire. Parmi les types figurent le non-respect partiel de la consigne (qui n'est pas un hors-sujet), le hors-sujet thématique et le hors-sujet discursif ; le hors-sujet complet est à la fois thématique et discursif.",
+      "expected_sources": [
+        "Présentation_copies_atypiques_VF.pptx"
+      ],
+      "answerable": true,
+      "split": "held_out",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
+    },
+    {
+      "id": "d25",
+      "category": "descripteur",
+      "level": "general",
+      "skill": "general",
+      "question": "Qu'est-ce qu'un « descripteur » et à quoi sert-il dans l'évaluation ?",
+      "ground_truth": "Un descripteur est un énoncé décrivant un niveau de compétence ; le correcteur s'en sert pour positionner la production du candidat sur le critère concerné.",
+      "language": "fr",
+      "type": "definition",
+      "difficulty": "easy",
+      "question_tr": "Bir « descripteur » nedir ve değerlendirmede ne işe yarar?",
+      "question_fr": "Qu'est-ce qu'un « descripteur » et à quoi sert-il dans l'évaluation ?",
+      "expected_answer_tr": "Descripteur, bir yetkinlik seviyesini tanımlayan bir ifadedir; düzeltici, adayın üretimini ilgili kritere göre konumlandırmak için descripteur'leri kullanır.",
+      "expected_answer_fr": "Un descripteur est un énoncé décrivant un niveau de compétence ; le correcteur s'en sert pour positionner la production du candidat sur le critère concerné.",
+      "expected_sources": [
+        "Descripteurs_CECRL_A1_B2_VF_a_donner.pdf",
+        "B1_Descripteurs_PO.pdf"
+      ],
+      "answerable": true,
+      "split": "dev",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
+    },
+    {
+      "id": "d26",
+      "category": "grille",
+      "level": "general",
+      "skill": "PE",
+      "question": "Yazılı üretim grilinde hangi beş değerlendirme kriteri ortak olarak yer alır?",
+      "ground_truth": "Yazılı üretim grillerinde ortak beş kriter şunlardır: Réalisation de la tâche (görevin gerçekleştirilmesi), Cohérence et cohésion, Adéquation sociolinguistique, Lexique ve Morphosyntaxe.",
+      "language": "tr",
+      "type": "definition",
+      "difficulty": "easy",
+      "question_tr": "Yazılı üretim grilinde hangi beş değerlendirme kriteri ortak olarak yer alır?",
+      "question_fr": "Quels sont les cinq critères d'évaluation communs aux grilles de production écrite ?",
+      "expected_answer_tr": "Yazılı üretim grillerinde ortak beş kriter şunlardır: Réalisation de la tâche (görevin gerçekleştirilmesi), Cohérence et cohésion, Adéquation sociolinguistique, Lexique ve Morphosyntaxe.",
+      "expected_answer_fr": "Les cinq critères communs aux grilles de production écrite sont : Réalisation de la tâche, Cohérence et cohésion, Adéquation sociolinguistique, Lexique et Morphosyntaxe.",
+      "expected_sources": [
+        "B1_Grille_PE.pdf",
+        "B2_Grille_PE.pdf"
+      ],
+      "answerable": true,
+      "split": "dev",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
+    },
+    {
+      "id": "d27",
+      "category": "copie",
+      "level": "general",
+      "skill": "PE",
+      "question": "Le candidat est-il pénalisé s'il écrit beaucoup plus que demandé (par ex. 75 mots au lieu de 40) ?",
+      "ground_truth": "Non. Écrire plus que demandé n'est pas sanctionné ni évalué dans un critère spécifique (hormis dans la synthèse du C1).",
+      "language": "fr",
+      "type": "analytical",
+      "difficulty": "medium",
+      "question_tr": "Aday talimattan çok daha fazla (örn. 40 yerine 75 kelime) yazarsa cezalandırılır mı?",
+      "question_fr": "Le candidat est-il pénalisé s'il écrit beaucoup plus que demandé (par ex. 75 mots au lieu de 40) ?",
+      "expected_answer_tr": "Hayır. İstenenden fazla yazmak, belirli bir kriterde cezalandırılmaz ve değerlendirilmez (C1 synthèse hariç).",
+      "expected_answer_fr": "Non. Écrire plus que demandé n'est pas sanctionné ni évalué dans un critère spécifique (hormis dans la synthèse du C1).",
+      "expected_sources": [
+        "Introduction_critères_corriges.docx"
+      ],
+      "answerable": true,
+      "split": "dev",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
+    },
+    {
+      "id": "d28",
+      "category": "copie",
+      "level": "general",
+      "skill": "PE",
+      "question": "Bir aday istenen 40 kelime yerine yalnızca 18 kelime yazarsa kopya nasıl puanlanır?",
+      "ground_truth": "Bu durumda « Manque de matière évaluable » (değerlendirilebilir içerik eksikliği) kutusu « anomalies » bölümünde işaretlenir ve kopya 0 alır.",
+      "language": "tr",
+      "type": "analytical",
+      "difficulty": "medium",
+      "question_tr": "Bir aday istenen 40 kelime yerine yalnızca 18 kelime yazarsa kopya nasıl puanlanır?",
+      "question_fr": "Comment note-t-on une copie où le candidat écrit seulement 18 mots au lieu des 40 demandés ?",
+      "expected_answer_tr": "Bu durumda « Manque de matière évaluable » (değerlendirilebilir içerik eksikliği) kutusu « anomalies » bölümünde işaretlenir ve kopya 0 alır.",
+      "expected_answer_fr": "On coche la case « Manque de matière évaluable » dans la section « anomalies » et la copie obtient 0.",
+      "expected_sources": [
+        "Introduction_critères_corriges.docx"
+      ],
+      "answerable": true,
+      "split": "held_out",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
+    },
+    {
+      "id": "d29",
+      "category": "methodologie",
+      "level": "general",
+      "skill": "PE",
+      "question": "Si le candidat doit décrire plusieurs activités mais n'en mentionne qu'une, dans quel critère cela est-il évalué ?",
+      "ground_truth": "Cela est évalué dans le critère « Réalisation de la tâche », car les exigences de la tâche ne sont pas toutes satisfaites.",
+      "language": "fr",
+      "type": "analytical",
+      "difficulty": "hard",
+      "question_tr": "Aday yalnızca tek bir etkinlikten söz etmesine rağmen birkaç etkinlik betimlemesi gerekiyorsa bu hangi kriterde değerlendirilir?",
+      "question_fr": "Si le candidat doit décrire plusieurs activités mais n'en mentionne qu'une, dans quel critère cela est-il évalué ?",
+      "expected_answer_tr": "Bu eksiklik « Réalisation de la tâche » (görevin gerçekleştirilmesi) kriterinde değerlendirilir; çünkü görevin gereklerinin tümü karşılanmamıştır.",
+      "expected_answer_fr": "Cela est évalué dans le critère « Réalisation de la tâche », car les exigences de la tâche ne sont pas toutes satisfaites.",
+      "expected_sources": [
+        "Introduction_critères_corriges.docx",
+        "manuel-exacor.pdf"
+      ],
+      "answerable": true,
+      "split": "dev",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
+    },
+    {
+      "id": "d30",
+      "category": "grille",
+      "level": "A1",
+      "skill": "PE",
+      "question": "DELF A1 yazılı üretim grilinde hangi anomaliler (anomalies) işaretlenebilir?",
+      "ground_truth": "DELF A1 yazılı üretim grilinde, üretimde anomali varsa ilgili kutular işaretlenir; bunlar arasında hors-sujet ve « Manque de matière évaluable » (değerlendirilebilir içerik eksikliği) yer alır.",
+      "language": "tr",
+      "type": "factoid",
+      "difficulty": "easy",
+      "question_tr": "DELF A1 yazılı üretim grilinde hangi anomaliler (anomalies) işaretlenebilir?",
+      "question_fr": "Quelles anomalies peut-on cocher dans la grille de production écrite du DELF A1 ?",
+      "expected_answer_tr": "DELF A1 yazılı üretim grilinde, üretimde anomali varsa ilgili kutular işaretlenir; bunlar arasında hors-sujet ve « Manque de matière évaluable » (değerlendirilebilir içerik eksikliği) yer alır.",
+      "expected_answer_fr": "Dans la grille de production écrite du DELF A1, si la production contient des anomalies, on coche les cases correspondantes, parmi lesquelles le hors-sujet et le « Manque de matière évaluable ».",
+      "expected_sources": [
+        "A1_Grille_PE.pdf"
+      ],
+      "answerable": true,
+      "split": "dev",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
+    },
+    {
+      "id": "d31",
+      "category": "presentation",
+      "level": "general",
+      "skill": "general",
+      "question": "Pourquoi le rôle de l'examinateur-correcteur est-il primordial ?",
+      "ground_truth": "Le rôle de l'examinateur-correcteur est primordial pour donner au candidat toutes les chances de réaliser une bonne performance, pour garantir la fiabilité des diplômes et l'équité des évaluations.",
+      "language": "fr",
+      "type": "definition",
+      "difficulty": "medium",
+      "question_tr": "Examinateur-correcteur'ün rolü neden önemlidir?",
+      "question_fr": "Pourquoi le rôle de l'examinateur-correcteur est-il primordial ?",
+      "expected_answer_tr": "Examinateur-correcteur'ün rolü, adaya iyi bir performans gösterme şansını vermek, diplomaların güvenilirliğini (fiabilité) ve değerlendirmelerin eşitliğini (équité) güvence altına almak için önemlidir.",
+      "expected_answer_fr": "Le rôle de l'examinateur-correcteur est primordial pour donner au candidat toutes les chances de réaliser une bonne performance, pour garantir la fiabilité des diplômes et l'équité des évaluations.",
+      "expected_sources": [
+        "Diaporama_rôle_EC_VF.pptx"
+      ],
+      "answerable": true,
+      "split": "held_out",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
+    },
+    {
+      "id": "d32",
+      "category": "double_correction",
+      "level": "general",
+      "skill": "general",
+      "question": "Düzeltici, her egzersizin notunu kopyanın neresine aktarır?",
+      "ground_truth": "Düzeltici puanları toplar ve her egzersizin notunu kopyanın kapak sayfasına (page de garde) aktarır.",
+      "language": "tr",
+      "type": "procedural",
+      "difficulty": "medium",
+      "question_tr": "Düzeltici, her egzersizin notunu kopyanın neresine aktarır?",
+      "question_fr": "Où le correcteur reporte-t-il la note de chaque exercice sur la copie ?",
+      "expected_answer_tr": "Düzeltici puanları toplar ve her egzersizin notunu kopyanın kapak sayfasına (page de garde) aktarır.",
+      "expected_answer_fr": "Le correcteur additionne les points et reporte la note de chaque exercice sur la page de garde de la copie.",
+      "expected_sources": [
+        "manuel-exacor.pdf"
+      ],
+      "answerable": true,
+      "split": "dev",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
+    },
+    {
+      "id": "d33",
+      "category": "double_correction",
+      "level": "general",
+      "skill": "general",
+      "question": "Que fait le correcteur n°2 en cas d'erreur de calcul ou de barème (et non de désaccord) ?",
+      "ground_truth": "Le correcteur n°2 barre et corrige l'erreur de comptage ou l'erreur manifeste de barème, puis recalcule la note et le total ; aucune harmonisation n'est nécessaire dans ce cas.",
+      "language": "fr",
+      "type": "procedural",
+      "difficulty": "medium",
+      "question_tr": "İki düzeltici arasında basit bir hesap/barem hatası olduğunda ikinci düzeltici ne yapar?",
+      "question_fr": "Que fait le correcteur n°2 en cas d'erreur de calcul ou de barème (et non de désaccord) ?",
+      "expected_answer_tr": "İkinci düzeltici, sayım/hesap hatasını veya açık barem hatasını çizerek düzeltir, puanı ve toplam notu yeniden hesaplar; bu durumda harmonizasyon gerekmez.",
+      "expected_answer_fr": "Le correcteur n°2 barre et corrige l'erreur de comptage ou l'erreur manifeste de barème, puis recalcule la note et le total ; aucune harmonisation n'est nécessaire dans ce cas.",
+      "expected_sources": [
+        "manuel-exacor.pdf"
+      ],
+      "answerable": true,
+      "split": "dev",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
+    },
+    {
+      "id": "d34",
+      "category": "procedure",
+      "level": "general",
+      "skill": "general",
+      "question": "DELF/DALF'ın yönetimi nasıl düzenlenmiştir?",
+      "ground_truth": "DELF/DALF'ın yönetimi hem merkezî hem de yerel (décentralisée) yapıdadır; bunlar Millî Eğitim Bakanlığı'nın devlet diplomalarıdır ve Fransa'da rektörlükler (rectorats) dağıtım, sınav merkezlerinin takibi ve prosedürlere uyumdan sorumludur.",
+      "language": "tr",
+      "type": "factoid",
+      "difficulty": "medium",
+      "question_tr": "DELF/DALF'ın yönetimi nasıl düzenlenmiştir?",
+      "question_fr": "Comment est organisée la gestion du DELF/DALF ?",
+      "expected_answer_tr": "DELF/DALF'ın yönetimi hem merkezî hem de yerel (décentralisée) yapıdadır; bunlar Millî Eğitim Bakanlığı'nın devlet diplomalarıdır ve Fransa'da rektörlükler (rectorats) dağıtım, sınav merkezlerinin takibi ve prosedürlere uyumdan sorumludur.",
+      "expected_answer_fr": "La gestion du DELF/DALF est à la fois centralisée et décentralisée ; ce sont des diplômes d'État du ministère de l'Éducation nationale et, en France, les rectorats sont responsables de leur diffusion, du suivi des centres d'examen et du respect des procédures.",
+      "expected_sources": [
+        "Dispositif_DELF-DALF_v2022.pptx"
+      ],
+      "answerable": true,
+      "split": "dev",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
+    },
+    {
+      "id": "d35",
+      "category": "double_correction",
+      "level": "general",
+      "skill": "general",
+      "question": "Quelle est la procédure suivie en cas de désaccord entre les deux correcteurs ?",
+      "ground_truth": "Les questions concernées sont signalées au crayon de papier par un point d'interrogation afin de les repérer facilement, puis une concertation entre les deux correcteurs est organisée pour harmoniser leurs notations.",
+      "language": "fr",
+      "type": "procedural",
+      "difficulty": "hard",
+      "question_tr": "İki düzeltici arasında bir görüş ayrılığı (désaccord) olduğunda izlenen prosedür nedir?",
+      "question_fr": "Quelle est la procédure suivie en cas de désaccord entre les deux correcteurs ?",
+      "expected_answer_tr": "İlgili sorular, kolayca bulunabilmesi için kurşun kalemle bir soru işareti konularak işaretlenir; ardından iki düzeltici notlarını uyumlamak için bir concertation (görüşme/harmonizasyon) yapar.",
+      "expected_answer_fr": "Les questions concernées sont signalées au crayon de papier par un point d'interrogation afin de les repérer facilement, puis une concertation entre les deux correcteurs est organisée pour harmoniser leurs notations.",
+      "expected_sources": [
+        "manuel-exacor.pdf"
+      ],
+      "answerable": true,
+      "split": "held_out",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
+    },
+    {
+      "id": "d36",
+      "category": "grille",
+      "level": "B1",
+      "skill": "PE",
+      "question": "Quels sont les échelons de notation du critère « Réalisation de la tâche » dans la grille de production écrite du DELF B1 ?",
+      "ground_truth": "Dans la grille de production écrite du DELF B1, le critère « Réalisation de la tâche » est noté selon les échelons 0, 1, 3 et 5 (Non répondu / En dessous du niveau ciblé / B1 / B1+).",
+      "language": "fr",
+      "type": "factoid",
+      "difficulty": "medium",
+      "question_tr": "DELF B1 yazılı üretim grilinde « Réalisation de la tâche » kriterindeki puan basamakları nedir?",
+      "question_fr": "Quels sont les échelons de notation du critère « Réalisation de la tâche » dans la grille de production écrite du DELF B1 ?",
+      "expected_answer_tr": "DELF B1 yazılı üretim grilinde « Réalisation de la tâche » kriteri 0, 1, 3 ve 5 puan basamaklarıyla derecelendirilir (Non répondu / En dessous du niveau ciblé / B1 / B1+).",
+      "expected_answer_fr": "Dans la grille de production écrite du DELF B1, le critère « Réalisation de la tâche » est noté selon les échelons 0, 1, 3 et 5 (Non répondu / En dessous du niveau ciblé / B1 / B1+).",
+      "expected_sources": [
+        "B1_Grille_PE.pdf"
+      ],
+      "answerable": true,
+      "split": "dev",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
+    },
+    {
+      "id": "d37",
+      "category": "grille",
+      "level": "B1",
+      "skill": "PO",
+      "question": "DELF B1 sözlü üretim epreuvesi hangi üç görevden (tâche) oluşur?",
+      "ground_truth": "DELF B1 sözlü üretim grili üç görev içerir: entretien dirigé (yönlendirilmiş görüşme, 2-3 dk), exercice en interaction (etkileşimli alıştırma, 3-4 dk) ve expression d'un point de vue (görüş bildirme, 5-7 dk).",
+      "language": "tr",
+      "type": "factoid",
+      "difficulty": "medium",
+      "question_tr": "DELF B1 sözlü üretim epreuvesi hangi üç görevden (tâche) oluşur?",
+      "question_fr": "De quelles trois tâches se compose l'épreuve de production orale du DELF B1 ?",
+      "expected_answer_tr": "DELF B1 sözlü üretim grili üç görev içerir: entretien dirigé (yönlendirilmiş görüşme, 2-3 dk), exercice en interaction (etkileşimli alıştırma, 3-4 dk) ve expression d'un point de vue (görüş bildirme, 5-7 dk).",
+      "expected_answer_fr": "La grille de production orale du DELF B1 comporte trois tâches : l'entretien dirigé (2 à 3 minutes), l'exercice en interaction (3 à 4 minutes) et l'expression d'un point de vue (5 à 7 minutes).",
+      "expected_sources": [
+        "B1_Grille_PO.pdf",
+        "PO_B1.pdf"
+      ],
+      "answerable": true,
+      "split": "dev",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
+    },
+    {
+      "id": "d38",
+      "category": "grille",
+      "level": "A1",
+      "skill": "PO",
+      "question": "Quelles sont les trois tâches de la grille de production orale du DELF A1 ?",
+      "ground_truth": "La grille de production orale du DELF A1 comporte trois tâches : l'entretien dirigé (environ 1 minute), l'échange d'informations (environ 2 minutes) et le dialogue simulé (environ 2 minutes).",
+      "language": "fr",
+      "type": "definition",
+      "difficulty": "easy",
+      "question_tr": "DELF A1 sözlü üretim grili hangi üç görevi (tâche) içerir?",
+      "question_fr": "Quelles sont les trois tâches de la grille de production orale du DELF A1 ?",
+      "expected_answer_tr": "DELF A1 sözlü üretim grili üç görev içerir: entretien dirigé (yönlendirilmiş görüşme, ~1 dk), échange d'informations (bilgi alışverişi, ~2 dk) ve dialogue simulé (canlandırılmış diyalog, ~2 dk).",
+      "expected_answer_fr": "La grille de production orale du DELF A1 comporte trois tâches : l'entretien dirigé (environ 1 minute), l'échange d'informations (environ 2 minutes) et le dialogue simulé (environ 2 minutes).",
+      "expected_sources": [
+        "A1_Grille_PO.pdf",
+        "PO_A1.pdf"
+      ],
+      "answerable": true,
+      "split": "dev",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
+    },
+    {
+      "id": "d39",
+      "category": "grille",
+      "level": "A2",
+      "skill": "PO",
+      "question": "De quelles trois parties se compose l'épreuve de production orale du DELF A2 ?",
+      "ground_truth": "La grille de production orale du DELF A2 comporte trois tâches : l'entretien dirigé (environ 1 min 30), le monologue suivi (environ 2 minutes) et l'exercice en interaction (3 à 4 minutes).",
+      "language": "fr",
+      "type": "factoid",
+      "difficulty": "medium",
+      "question_tr": "DELF A2 sözlü üretim epreuvesi hangi üç bölümden oluşur?",
+      "question_fr": "De quelles trois parties se compose l'épreuve de production orale du DELF A2 ?",
+      "expected_answer_tr": "DELF A2 sözlü üretim grili üç görev içerir: entretien dirigé (yönlendirilmiş görüşme, ~1 dk 30), monologue suivi (sürekli monolog, ~2 dk) ve exercice en interaction (etkileşimli alıştırma, 3-4 dk).",
+      "expected_answer_fr": "La grille de production orale du DELF A2 comporte trois tâches : l'entretien dirigé (environ 1 min 30), le monologue suivi (environ 2 minutes) et l'exercice en interaction (3 à 4 minutes).",
+      "expected_sources": [
+        "A2_Grille_PO.pdf",
+        "PO_A2.pdf"
+      ],
+      "answerable": true,
+      "split": "held_out",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
+    },
+    {
+      "id": "d40",
+      "category": "grille",
+      "level": "C1",
+      "skill": "PE",
+      "question": "DALF C1 yazılı üretim epreuvesi hangi iki alıştırmadan oluşur?",
+      "ground_truth": "DALF C1 yazılı üretim iki alıştırmadan oluşur: synthèse de documents (belge sentezi) ve essai argumenté (gerekçeli deneme).",
+      "language": "tr",
+      "type": "factoid",
+      "difficulty": "hard",
+      "question_tr": "DALF C1 yazılı üretim epreuvesi hangi iki alıştırmadan oluşur?",
+      "question_fr": "De quels deux exercices se compose l'épreuve de production écrite du DALF C1 ?",
+      "expected_answer_tr": "DALF C1 yazılı üretim iki alıştırmadan oluşur: synthèse de documents (belge sentezi) ve essai argumenté (gerekçeli deneme).",
+      "expected_answer_fr": "L'épreuve de production écrite du DALF C1 se compose de deux exercices : une synthèse de documents et un essai argumenté.",
+      "expected_sources": [
+        "dalf-c1sujet-demo-candidat-coll.pdf"
+      ],
+      "answerable": true,
+      "split": "dev",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
+    },
+    {
+      "id": "d41",
+      "category": "descripteur",
+      "level": "B1",
+      "skill": "general",
+      "question": "Selon l'échelle globale du CECRL, que peut faire un utilisateur de niveau B1 ?",
+      "ground_truth": "L'utilisateur B1 peut comprendre les points essentiels quand un langage clair et standard est utilisé et s'il s'agit de choses familières (travail, école, loisirs) ; il peut se débrouiller dans la plupart des situations de voyage et produire un discours simple et cohérent sur des sujets familiers.",
+      "language": "fr",
+      "type": "definition",
+      "difficulty": "easy",
+      "question_tr": "CECRL küresel ölçeğine (échelle globale) göre B1 seviyesindeki bir kullanıcı neler yapabilir?",
+      "question_fr": "Selon l'échelle globale du CECRL, que peut faire un utilisateur de niveau B1 ?",
+      "expected_answer_tr": "B1 kullanıcısı, açık ve standart bir dil kullanıldığında ve iş, okul, boş zaman gibi tanıdık konularda ana noktaları anlayabilir; seyahatte karşılaşılan çoğu durumda kendini idare edebilir ve tanıdık konularda basit ve tutarlı bir söylem üretebilir.",
+      "expected_answer_fr": "L'utilisateur B1 peut comprendre les points essentiels quand un langage clair et standard est utilisé et s'il s'agit de choses familières (travail, école, loisirs) ; il peut se débrouiller dans la plupart des situations de voyage et produire un discours simple et cohérent sur des sujets familiers.",
+      "expected_sources": [
+        "Echelle globale.pdf"
+      ],
+      "answerable": true,
+      "split": "dev",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
+    },
+    {
+      "id": "d42",
+      "category": "descripteur",
+      "level": "A1",
+      "skill": "PO",
+      "question": "DELF A1 sözlü üretiminde « Réalisation de la tâche » için hedef seviyedeki (au niveau ciblé) descripteur ne der?",
+      "ground_truth": "Hedef seviyede aday kendini tanıtabilir ve kimliği ile yakın çevresi hakkında basit terimlerle, art arda sıralanmış (juxtaposées) fikirler biçiminde konuşabilir; ancak basit ve öngörülebilir bazı sorular anlaşılmayabilir.",
+      "language": "tr",
+      "type": "definition",
+      "difficulty": "medium",
+      "question_tr": "DELF A1 sözlü üretiminde « Réalisation de la tâche » için hedef seviyedeki (au niveau ciblé) descripteur ne der?",
+      "question_fr": "Que dit le descripteur « au niveau ciblé » pour la « Réalisation de la tâche » en production orale du DELF A1 ?",
+      "expected_answer_tr": "Hedef seviyede aday kendini tanıtabilir ve kimliği ile yakın çevresi hakkında basit terimlerle, art arda sıralanmış (juxtaposées) fikirler biçiminde konuşabilir; ancak basit ve öngörülebilir bazı sorular anlaşılmayabilir.",
+      "expected_answer_fr": "Au niveau ciblé, le candidat peut se présenter et parler en termes simples et sous forme d'idées juxtaposées de son identité et de son environnement immédiat ; certaines questions simples et prévisibles peuvent ne pas être comprises.",
+      "expected_sources": [
+        "A1_Descripteurs_PO.pdf"
+      ],
+      "answerable": true,
+      "split": "dev",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
+    },
+    {
+      "id": "d43",
+      "category": "descripteur",
+      "level": "B2",
+      "skill": "PO",
+      "question": "Qu'attend-on du candidat pour la « Réalisation de la tâche » en production orale du DELF B2 ?",
+      "ground_truth": "Au niveau B2, le candidat peut identifier la thématique soulevée par le sujet et présenter la problématique au moyen d'une introduction ; il peut donner son point de vue en s'appuyant sur des arguments et en apportant des justifications pour ou contre.",
+      "language": "fr",
+      "type": "analytical",
+      "difficulty": "medium",
+      "question_tr": "DELF B2 sözlü üretiminde « Réalisation de la tâche » açısından adaydan ne beklenir?",
+      "question_fr": "Qu'attend-on du candidat pour la « Réalisation de la tâche » en production orale du DELF B2 ?",
+      "expected_answer_tr": "B2 seviyesinde aday, konuda ortaya atılan tematiği belirleyebilmeli ve problematiği bir giriş ile sunabilmeli; görüşünü, argümanlara dayanarak ve lehte ya da aleyhte gerekçeler getirerek bildirebilmelidir.",
+      "expected_answer_fr": "Au niveau B2, le candidat peut identifier la thématique soulevée par le sujet et présenter la problématique au moyen d'une introduction ; il peut donner son point de vue en s'appuyant sur des arguments et en apportant des justifications pour ou contre.",
+      "expected_sources": [
+        "B2_Descripteurs_PO.pdf"
+      ],
+      "answerable": true,
+      "split": "held_out",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
+    },
+    {
+      "id": "d44",
+      "category": "methodologie",
+      "level": "C1",
+      "skill": "PO",
+      "question": "De combien de temps de préparation dispose le candidat pour l'exposé de la production orale du DALF C1, et que peut-il utiliser ?",
+      "ground_truth": "Le candidat dispose de 60 minutes de préparation pour l'exposé et peut utiliser un dictionnaire monolingue français disponible dans la salle d'examen ; il ne peut pas apporter son dictionnaire personnel.",
+      "language": "fr",
+      "type": "procedural",
+      "difficulty": "medium",
+      "question_tr": "DALF C1 sözlü üretim sınavının exposé bölümü için aday ne kadar hazırlık süresi alır ve ne kullanabilir?",
+      "question_fr": "De combien de temps de préparation dispose le candidat pour l'exposé de la production orale du DALF C1, et que peut-il utiliser ?",
+      "expected_answer_tr": "Aday exposé için 60 dakika hazırlık süresi alır ve sınav salonunda bulunan tek dilli (monolingue) bir Fransızca sözlük kullanabilir; kendi kişisel sözlüğünü getiremez.",
+      "expected_answer_fr": "Le candidat dispose de 60 minutes de préparation pour l'exposé et peut utiliser un dictionnaire monolingue français disponible dans la salle d'examen ; il ne peut pas apporter son dictionnaire personnel.",
+      "expected_sources": [
+        "DALF C1-PO-Méthodologie-VD.pdf"
+      ],
+      "answerable": true,
+      "split": "dev",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
+    },
+    {
+      "id": "d45",
+      "category": "methodologie",
+      "level": "general",
+      "skill": "PE",
+      "question": "Üretilmesi gereken minimum kelime sayısına uyulmaması nasıl bir sonuç doğurur?",
+      "ground_truth": "Minimum kelime sayısına uyulmaması, puan açısından bir yaptırıma (sanction) yol açabilir; bunun göstergeleri değerlendirme grilinin « anomalies » bölümünde belirtilir.",
+      "language": "tr",
+      "type": "procedural",
+      "difficulty": "easy",
+      "question_tr": "Üretilmesi gereken minimum kelime sayısına uyulmaması nasıl bir sonuç doğurur?",
+      "question_fr": "Quelle conséquence entraîne le non-respect du nombre minimal de mots à produire ?",
+      "expected_answer_tr": "Minimum kelime sayısına uyulmaması, puan açısından bir yaptırıma (sanction) yol açabilir; bunun göstergeleri değerlendirme grilinin « anomalies » bölümünde belirtilir.",
+      "expected_answer_fr": "Le non-respect du nombre minimal de mots peut entraîner une sanction sur les points ; les indications figurent dans la section « anomalies » de la grille d'évaluation.",
+      "expected_sources": [
+        "manuel-exacor.pdf"
+      ],
+      "answerable": true,
+      "split": "dev",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
+    },
+    {
+      "id": "d46",
+      "category": "presentation",
+      "level": "general",
+      "skill": "general",
+      "question": "Quelles sont les différentes versions (publics) du DELF ?",
+      "ground_truth": "Le DELF existe en plusieurs versions : le DELF tout public (adultes), le DELF junior et le DELF scolaire (adolescents) et le DELF Prim (enfants) ; chaque version est adaptée au public visé.",
+      "language": "fr",
+      "type": "factoid",
+      "difficulty": "easy",
+      "question_tr": "DELF'in hangi farklı versiyonları (public) vardır?",
+      "question_fr": "Quelles sont les différentes versions (publics) du DELF ?",
+      "expected_answer_tr": "DELF'in farklı versiyonları vardır: DELF tout public (yetişkinler), DELF junior ve DELF scolaire (ergenler) ve DELF Prim (çocuklar); her versiyon hedef kitleye uyarlanmıştır.",
+      "expected_answer_fr": "Le DELF existe en plusieurs versions : le DELF tout public (adultes), le DELF junior et le DELF scolaire (adolescents) et le DELF Prim (enfants) ; chaque version est adaptée au public visé.",
+      "expected_sources": [
+        "Dispositif_DELF-DALF_v2022.pptx"
+      ],
+      "answerable": true,
+      "split": "dev",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
+    },
+    {
+      "id": "d47",
+      "category": "presentation",
+      "level": "A1",
+      "skill": "general",
+      "question": "Épreuvelerin tablosuna göre DELF A1 sözlü epreuvesi kaç dakika sürer ve kaç bölümden oluşur?",
+      "ground_truth": "DELF A1 sözlü epreuvesi jüriyle 5 ila 7 dakikalık bir görüşmedir ve üç bölümden oluşur: entretien dirigé, échange d'informations ve dialogue simulé.",
+      "language": "tr",
+      "type": "factoid",
+      "difficulty": "medium",
+      "question_tr": "Épreuvelerin tablosuna göre DELF A1 sözlü epreuvesi kaç dakika sürer ve kaç bölümden oluşur?",
+      "question_fr": "D'après le tableau des épreuves, combien de temps dure l'épreuve orale du DELF A1 et combien de parties comporte-t-elle ?",
+      "expected_answer_tr": "DELF A1 sözlü epreuvesi jüriyle 5 ila 7 dakikalık bir görüşmedir ve üç bölümden oluşur: entretien dirigé, échange d'informations ve dialogue simulé.",
+      "expected_answer_fr": "L'épreuve orale du DELF A1 est un entretien de 5 à 7 minutes avec le jury, en trois parties : l'entretien dirigé, l'échange d'informations et le dialogue simulé.",
+      "expected_sources": [
+        "Tableau_epreuves_DD_AS.pdf"
+      ],
+      "answerable": true,
+      "split": "held_out",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
+    },
+    {
+      "id": "d48",
+      "category": "descripteur",
+      "level": "general",
+      "skill": "PE",
+      "question": "Dans l'exercice d'évaluation des productions écrites par niveaux, comment le correcteur procède-t-il ?",
+      "ground_truth": "Le correcteur attribue un niveau (de A1 à B2) à chaque production, puis relie les niveaux aux descripteurs correspondants en justifiant son choix.",
+      "language": "fr",
+      "type": "definition",
+      "difficulty": "medium",
+      "question_tr": "Niveaux_CECRL_PE alıştırmasında bir düzeltici yazılı üretimleri nasıl değerlendirir?",
+      "question_fr": "Dans l'exercice d'évaluation des productions écrites par niveaux, comment le correcteur procède-t-il ?",
+      "expected_answer_tr": "Düzeltici her üretime bir seviye (A1'den B2'ye) atar, ardından seviyeleri ilgili descripteur'lere bağlar ve seçimini gerekçelendirir.",
+      "expected_answer_fr": "Le correcteur attribue un niveau (de A1 à B2) à chaque production, puis relie les niveaux aux descripteurs correspondants en justifiant son choix.",
+      "expected_sources": [
+        "Niveaux_CECRL_PE_V2.pdf"
+      ],
+      "answerable": true,
+      "split": "dev",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
+    },
+    {
+      "id": "d49",
+      "category": "methodologie",
+      "level": "C1",
+      "skill": "PO",
+      "question": "DALF C1 sözlü üretim epreuvesi hangi iki bölümden oluşur?",
+      "ground_truth": "DALF C1 sözlü üretim iki bölümden oluşur: gerekçeli bir görüşün savunulduğu bir exposé (sunum) ve ardından jüriyle bir tartışma (interaction/débat).",
+      "language": "tr",
+      "type": "factoid",
+      "difficulty": "medium",
+      "question_tr": "DALF C1 sözlü üretim epreuvesi hangi iki bölümden oluşur?",
+      "question_fr": "De quelles deux parties se compose l'épreuve de production orale du DALF C1 ?",
+      "expected_answer_tr": "DALF C1 sözlü üretim iki bölümden oluşur: gerekçeli bir görüşün savunulduğu bir exposé (sunum) ve ardından jüriyle bir tartışma (interaction/débat).",
+      "expected_answer_fr": "L'épreuve de production orale du DALF C1 est constituée de deux parties : un exposé (défense d'un point de vue argumenté) suivi d'un débat (interaction) avec le jury.",
+      "expected_sources": [
+        "DALF C1-PO-Méthodologie-VD.pdf"
+      ],
+      "answerable": true,
+      "split": "dev",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
+    },
+    {
+      "id": "d50",
+      "category": "descripteur",
+      "level": "A2",
+      "skill": "general",
+      "question": "D'après les mots-clés, quelles sont les principales caractéristiques du niveau A2 ?",
+      "ground_truth": "Le niveau A2 (intermédiaire ou de survie) est caractérisé par : les activités de la vie quotidienne et les besoins immédiats, les thèmes personnels élargis, des phrases simples et isolées, un langage clair et audible, et des fonctions du langage comme saluer et demander des informations.",
+      "language": "fr",
+      "type": "definition",
+      "difficulty": "easy",
+      "question_tr": "Anahtar kelimelere (mots-clés) göre A2 seviyesinin başlıca özellikleri nelerdir?",
+      "question_fr": "D'après les mots-clés, quelles sont les principales caractéristiques du niveau A2 ?",
+      "expected_answer_tr": "A2 (intermédiaire ou de survie) seviyesi şu anahtar kelimelerle tanımlanır: günlük yaşam etkinlikleri ve acil ihtiyaçlar, genişletilmiş kişisel temalar, basit ve yalıtık cümleler, açık ve duyulabilir bir dil ile selamlaşma ve bilgi isteme gibi dil işlevleri.",
+      "expected_answer_fr": "Le niveau A2 (intermédiaire ou de survie) est caractérisé par : les activités de la vie quotidienne et les besoins immédiats, les thèmes personnels élargis, des phrases simples et isolées, un langage clair et audible, et des fonctions du langage comme saluer et demander des informations.",
+      "expected_sources": [
+        "niveaux_mots_cles.pdf"
+      ],
+      "answerable": true,
+      "split": "dev",
+      "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT"
     }
   ]
 }

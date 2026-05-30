@@ -18,6 +18,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+RUN chmod +x entrypoint.sh
+
 EXPOSE 8080
 
-CMD ["sh", "-c", "streamlit run app.py --server.port=${PORT:-8080} --server.address=0.0.0.0 --server.headless=true --browser.gatherUsageStats=false"]
+# Phase 1 — entrypoint korpusu hazırlar (GCS senkronizasyonu + doğrulama), sonra Streamlit'i başlatır.
+ENTRYPOINT ["./entrypoint.sh"]

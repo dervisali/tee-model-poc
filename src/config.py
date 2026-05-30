@@ -204,6 +204,26 @@ class Settings(BaseSettings):
     )
 
     # -------------------------------------------------------------------
+    # Phase 2 — Deterministic recall@k raporu (kaynak-recall)
+    #
+    # retrieve_context'in döndürdüğü parent kaynaklarını, eval setindeki
+    # expected_sources (gerçek korpus dosya adları) ile karşılaştırarak
+    # recall@k / hit@k ölçer. RAGAS'tan bağımsız; LLM-yargıç GEREKTİRMEZ.
+    # Yalnızca gömme (embedding) çağrıları yapılır (MOCK_MODE'da hiç çağrı yok).
+    # -------------------------------------------------------------------
+    RECALL_EVAL_KS: list[int] = Field(
+        default=[1, 3, 5, 10],
+        description="recall@k / hit@k raporunun hesaplandığı k değerleri.",
+    )
+    RECALL_M3_K: int | None = Field(
+        default=None,
+        description=(
+            "M3 (top-source recall ≥%90) hangi k'de ölçülür. None ise "
+            "RETRIEVAL_TOP_K kullanılır (varsayılan 5)."
+        ),
+    )
+
+    # -------------------------------------------------------------------
     # Yollar (paths)
     # -------------------------------------------------------------------
     BASE_DIR: Path = Field(default=_BASE_DIR)
@@ -216,6 +236,45 @@ class Settings(BaseSettings):
     # Koleksiyon adları
     # -------------------------------------------------------------------
     CHILD_COLLECTION_NAME: str = Field(default="tee_children")
+
+    # -------------------------------------------------------------------
+    # Kalıcılık (persistence) — ChromaDB anlık görüntüsünü GCS'te tut
+    #
+    # Cloud Run dosya sistemi geçicidir; her soğuk başlangıçta chroma_db/
+    # silinir. backend="gcs" iken anlık görüntü (tek tar.gz) GCS'ten indirilip
+    # yerel diske açılır; ChromaDB değişmeden yerel FS üzerinde çalışır.
+    # Varsayılan "local" mevcut davranışı birebir korur (GCS bağımlılığı yok).
+    # -------------------------------------------------------------------
+    PERSISTENCE_BACKEND: Literal["local", "gcs"] = Field(
+        default="local",
+        description="'local' = yalnızca yerel disk (mevcut davranış); 'gcs' = açılışta GCS'ten senkronize et.",
+    )
+    GCS_BUCKET: str | None = Field(
+        default=None,
+        description="Anlık görüntü bucket adı. backend='gcs' iken zorunlu.",
+    )
+    GCS_SNAPSHOT_PREFIX: str = Field(
+        default="tee-corpus",
+        description="Bucket içindeki nesne ön eki (klasör).",
+    )
+    GCS_SNAPSHOT_OBJECT: str | None = Field(
+        default=None,
+        description="Belirli bir anlık görüntü tarball nesne yolunu sabitler; None ise latest.json takip edilir.",
+    )
+    SYNC_ON_STARTUP: bool = Field(
+        default=True,
+        description="backend='gcs' iken açılışta yerel DB boş/eksikse GCS'ten indir. 'local' iken etkisizdir.",
+    )
+    REQUIRE_CORPUS_ON_STARTUP: bool = Field(
+        default=False,
+        description="True ise korpus hazır değilken bootstrap hata verir (üretimde revizyon sağlıksız sayılır).",
+    )
+    GCS_DOWNLOAD_TIMEOUT_S: int = Field(
+        default=120,
+        ge=10,
+        le=600,
+        description="GCS anlık görüntü indirme zaman aşımı (saniye).",
+    )
 
     model_config = SettingsConfigDict(
         env_file=str(_BASE_DIR / ".env"),
