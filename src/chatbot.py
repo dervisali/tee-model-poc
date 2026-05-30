@@ -41,8 +41,15 @@ import re
 from typing import Literal
 
 from src.config import settings
-from src.llm import generate as llm_generate, generate_stream as llm_generate_stream
+from src.llm import (
+    generate as llm_generate,
+    generate_stream as llm_generate_stream,
+    is_vertex_available,
+)
 from src.retrieval import build_context_text, retrieve_context
+from src.safety import screen_input, enforce_grounding
+from src.rate_limit import check_rate_limit, rate_limit_message, graceful_degradation_message
+from src.audit_log import log_turn
 
 logger = logging.getLogger(__name__)
 
@@ -481,6 +488,7 @@ def chat(
     user_message: str,
     history: list[dict] | None = None,
     language: OutputLanguage | None = None,
+    session_id: str | None = None,
 ) -> dict:
     """
     Tek bir sohbet turunu işler — akışsız sürüm.
@@ -505,6 +513,35 @@ def chat(
     lang = _resolve_language(language)
     history = history or []
 
+    # Katman 1 — giriş güvenlik taraması (deterministik; MOCK'tan önce uygulanır).
+    in_verdict = screen_input(user_message, lang)
+    if not in_verdict.allowed:
+        logger.warning("Sohbet girişi reddedildi", extra={
+            "event": "chat_input_blocked", "category": in_verdict.category,
+            "reason": in_verdict.reason})
+        if not settings.MOCK_MODE:
+            log_turn(session_id=session_id, user_message=user_message,
+                     answer=in_verdict.refusal_text or "", sources=[],
+                     input_verdict=vars(in_verdict), language=lang)
+        return {
+            "answer": in_verdict.refusal_text,
+            "sources": [], "error": None,
+            "citation_report": _citation_report("", []),
+            "safety": {"input_blocked": True, "category": in_verdict.category},
+        }
+
+    # Katman 2 — oran sınırlama (session_id yoksa atlanır).
+    rl = check_rate_limit(session_id)
+    if not rl.allowed:
+        logger.warning("Sohbet oran sınırı aşıldı", extra={
+            "event": "chat_rate_limited", "scope": rl.scope, "reason": rl.reason})
+        return {
+            "answer": rate_limit_message(rl, lang),
+            "sources": [], "error": None,
+            "citation_report": _citation_report("", []),
+            "rate_limited": True,
+        }
+
     if settings.MOCK_MODE:
         logger.info("MOCK_MODE: sohbet fixture döndürülüyor (lang=%s).", lang)
         fixture = _MOCK_RESPONSES[lang]
@@ -519,28 +556,54 @@ def chat(
     try:
         system_prompt, user_prompt, sources = _prepare(user_message, history, lang)
         if not sources:
-            return {
-                "answer": _NO_CONTEXT_ANSWER[lang],
-                "sources": [],
-                "error": None,
-                "citation_report": _citation_report(_NO_CONTEXT_ANSWER[lang], []),
-            }
+            ans = _NO_CONTEXT_ANSWER[lang]
+            report = _citation_report(ans, [])
+            if settings.ENABLE_AUDIT_LOG:
+                log_turn(session_id=session_id, user_message=user_message, answer=ans,
+                         sources=[], citation_report=report,
+                         input_verdict=vars(in_verdict), language=lang,
+                         extra={"no_context": True})
+            return {"answer": ans, "sources": [], "error": None, "citation_report": report}
+
         answer = llm_generate(
             prompt=user_prompt,
             system=system_prompt,
             temperature=CHAT_TEMPERATURE,
         )
-        guarded_answer, checked_sources, report = _guard_answer(answer, sources, lang)
+
+        # Katman 3 — çıkış grounding kapısı (ungrounded yanıtı REDDET).
+        report = _citation_report(answer, sources)
+        out_verdict = enforce_grounding(answer, sources, report, lang)
+        if out_verdict.allowed and not report["passed"]:
+            # Kapı kapalı (eski davranış): yanıtı uyarıyla geçir.
+            final_answer = answer.strip() + _CITATION_WARNING[lang]
+        else:
+            final_answer = out_verdict.answer
+        checked_sources = _attach_citation_report(sources, report)
+
+        if settings.ENABLE_AUDIT_LOG:
+            log_turn(session_id=session_id, user_message=user_message, answer=final_answer,
+                     sources=sources, citation_report=report,
+                     input_verdict=vars(in_verdict), output_verdict=vars(out_verdict),
+                     language=lang)
         return {
-            "answer": guarded_answer,
+            "answer": final_answer,
             "sources": checked_sources,
             "error": None,
             "citation_report": report,
+            "safety": {"grounding_allowed": out_verdict.allowed, "reason": out_verdict.reason},
         }
 
     except Exception as exc:  # noqa: BLE001 — UI'ya zarif hata döndürülür
         logger.error("Sohbet turu hatası: %s", exc)
-        return {"answer": _error_text(lang), "sources": [], "error": str(exc)}
+        # Zarif düşüş: Vertex erişilemezse net bir "servis kullanılamıyor" mesajı.
+        try:
+            degraded = not is_vertex_available()
+        except Exception:  # noqa: BLE001
+            degraded = False
+        msg = graceful_degradation_message(lang) if degraded else _error_text(lang)
+        return {"answer": msg, "sources": [], "error": str(exc),
+                "degraded": degraded}
 
 
 def _mock_stream(text: str):
@@ -570,6 +633,7 @@ def chat_stream(
     user_message: str,
     history: list[dict] | None = None,
     language: OutputLanguage | None = None,
+    session_id: str | None = None,
 ) -> tuple[object, list[dict]]:
     """
     `chat()` ile aynı tur işleme — ancak yanıtı akış (streaming) olarak verir.
@@ -591,6 +655,24 @@ def chat_stream(
     lang = _resolve_language(language)
     history = history or []
 
+    # Katman 1 — giriş güvenlik taraması (akış başlamadan tam bloklayabilir).
+    in_verdict = screen_input(user_message, lang)
+    if not in_verdict.allowed:
+        logger.warning("Sohbet akış girişi reddedildi", extra={
+            "event": "chat_stream_input_blocked", "category": in_verdict.category})
+        if not settings.MOCK_MODE:
+            log_turn(session_id=session_id, user_message=user_message,
+                     answer=in_verdict.refusal_text or "", sources=[],
+                     input_verdict=vars(in_verdict), language=lang)
+        return _mock_stream(in_verdict.refusal_text or _error_text(lang)), []
+
+    # Katman 2 — oran sınırlama (session_id yoksa atlanır).
+    rl = check_rate_limit(session_id)
+    if not rl.allowed:
+        logger.warning("Sohbet akış oran sınırı aşıldı", extra={
+            "event": "chat_stream_rate_limited", "scope": rl.scope})
+        return _mock_stream(rate_limit_message(rl, lang)), []
+
     if settings.MOCK_MODE:
         logger.info("MOCK_MODE: sohbet akış fixture'ı döndürülüyor (lang=%s).", lang)
         fixture = _MOCK_RESPONSES[lang]
@@ -603,7 +685,11 @@ def chat_stream(
         logger.error("Sohbet akış hazırlık hatası: %s", exc)
 
         def _err_gen():
-            yield _error_text(lang)
+            try:
+                degraded = not is_vertex_available()
+            except Exception:  # noqa: BLE001
+                degraded = False
+            yield graceful_degradation_message(lang) if degraded else _error_text(lang)
 
         return _err_gen(), []
 
@@ -615,7 +701,10 @@ def chat_stream(
         for piece in _llm_stream(user_prompt, system_prompt, lang):
             pieces.append(piece)
             yield piece
-        report = _citation_report("".join(pieces), sources)
+        full = "".join(pieces)
+        report = _citation_report(full, sources)
+        # Akışta tokenlar geri alınamaz: grounding kapısı açıkken ungrounded
+        # yanıta GÜÇLÜ bir uyarı ekleriz (chat() akışsız sürümü sert reddeder).
         if not report["passed"]:
             logger.warning(
                 "Sohbet akış citation validation başarısız",
@@ -627,5 +716,10 @@ def chat_stream(
                 },
             )
             yield _CITATION_WARNING[lang]
+        if settings.ENABLE_AUDIT_LOG:
+            log_turn(session_id=session_id, user_message=user_message, answer=full,
+                     sources=sources, citation_report=report,
+                     input_verdict=vars(in_verdict), language=lang,
+                     extra={"streamed": True})
 
     return _validated_stream(), sources

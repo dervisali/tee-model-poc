@@ -7,9 +7,11 @@
 > **How to use this doc:** Every claim must be backed by a command, a metric, or a test. An
 > unmet gate is a **no-go** — do not paper over it.
 
-- **Status:** 🟡 In progress — Phase 1 (Persistence) complete; Phase 2 (Retrieval) measurable + live
-  baseline + lever sweep done (**live baseline M3 = 79% recall@5; best lever (reranker) = 83%;
-  M3 ≥ 90% NOT met by any non-destructive lever**); gate not certified; Phases 3–5 pending.
+- **Status:** 🟡 In progress — Phase 1 (Persistence) complete; Phase 2 (Retrieval) measurable
+  (**live baseline M3 = 79% recall@5; best lever (reranker) = 83%; M3 ≥ 90% NOT met**, gate not
+  certified); Phase 3 (Safety) defense-in-depth built + unit-tested (input screen 14/14 adversarial,
+  grounding refusal gate, rate limit, audit log w/ PII redaction — behavioral layers pending a live
+  run); Phases 4–5 pending.
 - **Last updated:** 2026-05-30
 - **Owner / reviewer:** Engineering (pending DELF-domain + governance sign-off)
 - **Commit / branch under assessment:** branch `feature/delf-corpus-migration` @ `9f57fc4` (+ working tree)
@@ -173,20 +175,54 @@ this is a starting point for the destructive-lever round, not a certification.
 
 ---
 
-## Phase 3 — Safety & abuse hardening  ·  Status: 🔴
+## Phase 3 — Safety & abuse hardening  ·  Status: 🟡  ·  defense-in-depth built & unit-tested; behavioral layers need a live confirmation run
 
-Single system-prompt guardrail is insufficient for unsupervised use.
+The single system-prompt guardrail is replaced by **three independent layers**, all behind
+default-ON, reversible config flags: (1) deterministic **input screen** (`src/safety.py screen_input`),
+(2) **output grounding gate** that *refuses* (not just warns) ungrounded answers (`enforce_grounding`,
+wired into `chat()`), (3) **rate limiting** (`src/rate_limit.py`) + **audit logging** (`src/audit_log.py`).
 
-| Attack | Attempted | Defended? | Mitigation |
+Adversarial results — deterministic input-screen layer (`python -m scripts.adversarial_safety` →
+`evaluation/results/adversarial_safety_*.json`, **14/14 probes match expected**; unit tests in
+`tests/test_safety.py`):
+
+| Attack | Attempted | Defended (input screen)? | Mitigation |
 |---|---|---|---|
-| Prompt injection | _(fill)_ | _(y/n)_ | _(fill)_ |
-| Jailbreak / role override | _(fill)_ | _(y/n)_ | _(fill)_ |
-| Extract a final score/band | _(fill)_ | _(y/n)_ | _(fill)_ |
-| Generate exam content / fake candidate text | _(fill)_ | _(y/n)_ | _(fill)_ |
+| Prompt injection ("ignore instructions", reveal prompt) | yes (TR/FR/EN) | ✅ blocked | `screen_input` → refusal; never reaches LLM |
+| Jailbreak / role override (DAN, developer mode, "act as") | yes | ✅ blocked | same |
+| Generate exam content / fake candidate copy | yes (TR/FR/EN) | ✅ blocked | verb↔artifact proximity regex → refusal |
+| Extract a final score/band | yes | ◑ allowed but tagged; refused by system prompt | legit overlap (discussing criteria); behavioral refusal **pending live confirm** |
+| Grounding bypass ("ignore the sources") | yes | ◑ allowed but tagged; caught by grounding gate | output gate refuses if citations don't validate |
+| Benign controls (false-positive check) | yes (2) | ✅ allowed | no over-blocking of real examiner queries |
 
-- Ungrounded-answer refusal gate: _(describe)_ · Rate limiting / quota protection: _(describe)_
-- Graceful degradation when Vertex unavailable: _(describe)_ · Audit logging: _(where / retention)_
-- PII / data governance for `copies atypiques`: _(handling, retention, access)_ · Residual risks: _(fill)_
+- **Ungrounded-answer refusal gate:** ✅ `chat()` computes the citation report and calls
+  `enforce_grounding()`; with `ENABLE_GROUNDING_GATE=true` (default) an answer whose citations don't
+  validate is **replaced by a refusal**, not served. Flag-off restores the legacy warning. Streaming
+  path appends a strong warning (tokens already emitted) — non-streaming `chat()` is the hard gate.
+  Tests: `test_non_streaming_chat_refuses_ungrounded_by_default`, `test_grounding_gate_*`.
+- **Rate limiting / quota protection:** ✅ per-session sliding-window limiter (12/min, 500/day),
+  per-key isolation + window-slide unit-tested. **Limitation:** in-process only — multi-instance
+  serving needs shared state (Redis); flagged for Phase 4.
+- **Graceful degradation when Vertex unavailable:** ✅ `chat()`/`chat_stream()` catch failures and,
+  if `is_vertex_available()` is false, return a clear bilingual "service temporarily unavailable"
+  message instead of a stack trace.
+- **Audit logging:** ✅ every live turn → append-only JSONL at `AUDIT_LOG_DIR`
+  (`logs/audit/audit_YYYY-MM-DD.jsonl`): timestamp, hashed session id, query, retrieved parent_ids,
+  answer, citation report, input/output verdicts. Round-trip unit-tested.
+- **PII / data governance for `copies atypiques`:** ✅ `AUDIT_LOG_REDACT_PII=true` runs query+answer
+  through `src/anonymizer.py` (masks phone, TC kimlik, IBAN, Turkish names — verified empirically)
+  **plus a dedicated email scrub in `audit_log._redact()`** (anonymizer doesn't cover email);
+  `session_id` is SHA-256 hashed, never stored raw. Verified by
+  `test_audit_record_hashes_session_and_redacts_pii`. **Retention/access:** day-rotated files; OS
+  permissions + a lifecycle/retention policy at deploy (Phase 4/5) — not yet infra-enforced.
+- **Residual risks / honest gaps:**
+  - Behavioral layers (live-model score refusal, grounding on the real LLM, no-context fallback,
+    language-lock) are verified deterministically + unit-level but **not yet confirmed end-to-end
+    against the live model** (`pending_live` in the adversarial artifact). A `MOCK_MODE=false`
+    adversarial run is the remaining Phase 3 task before 🟢.
+  - Input screen is regex-based — robust for known patterns, not a guarantee against novel obfuscated
+    injections; it is one layer of three, not the sole defense.
+  - Rate limiter is single-process (see Phase 4). Audit retention/access documented, not infra-enforced.
 
 ---
 
@@ -219,7 +255,7 @@ Single system-prompt guardrail is insufficient for unsupervised use.
 | 5 | Unicode NFD/NFC filename mismatch understated recall | M | — | ✅ Fixed (Phase 2) — `_basename` NFC-normalizes; verified. |
 | 6 | **M3 not met (live 79%; best lever 83% < 90%)** | H | H | 🔴 OPEN — needs destructive re-ingest levers and/or expert validation. |
 | 7 | M4 citation accuracy unmeasured | H | — | 🔴 OPEN. |
-| 8 | Safety/abuse hardening incomplete | H | — | 🔴 OPEN — Phase 3. |
+| 8 | Safety/abuse hardening incomplete | H | M | 🟡 Partly mitigated (Phase 3) — 3-layer defense (input screen 14/14 adversarial, grounding refusal gate, rate limit, audit+PII redaction) built & unit-tested; behavioral layers pending a live confirmation run. |
 | 9 | No auth / serving load unproven | H | — | 🔴 OPEN — Phase 4. |
 | 10 | Cloud Run OOM on extract/first query | H | M | ⏳ Deploy-time — memory ≥ 2 GiB; Phase 4. |
 

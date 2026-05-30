@@ -193,6 +193,40 @@ class Settings(BaseSettings):
     ENABLE_DEDUPLICATION: bool = Field(default=True)
 
     # -------------------------------------------------------------------
+    # Phase 3 — Güvenlik & kötüye kullanım sertleştirme (unsupervised)
+    #
+    # Tek katmanlı sistem talimatı yetersiz: giriş tarama (prompt-injection /
+    # sınav-içeriği üretimi), ungrounded yanıt REDDETME kapısı, oran sınırlama,
+    # ve denetim (audit) günlüğü. Tümü bayrakla geri alınabilir; varsayılan AÇIK
+    # (üretim hedefi). MOCK_MODE testleri etkilenmez: zararsız sorgular geçer,
+    # grounding kapısı yalnızca canlı ungrounded yanıtlarda devreye girer,
+    # oran sınırlama session_id verilmezse atlanır, audit yalnızca canlı yolda.
+    # -------------------------------------------------------------------
+    ENABLE_INPUT_SAFETY_SCREEN: bool = Field(
+        default=True,
+        description="Açıkken kullanıcı mesajı prompt-injection/jailbreak ve sınav-içeriği üretimi için taranır; eşleşme reddedilir.",
+    )
+    ENABLE_GROUNDING_GATE: bool = Field(
+        default=True,
+        description="Açıkken alıntıları doğrulanamayan (ungrounded) yanıt SERVİS EDİLMEZ; yerine reddetme mesajı döner. Kapalıyken eski davranış (uyarı ekle).",
+    )
+    ENABLE_RATE_LIMIT: bool = Field(
+        default=True,
+        description="Açıkken session_id başına dakika/gün istek sınırı uygulanır (session_id verilmezse atlanır).",
+    )
+    RATE_LIMIT_PER_MINUTE: int = Field(default=12, ge=1, le=600)
+    RATE_LIMIT_PER_DAY: int = Field(default=500, ge=1, le=100000)
+    ENABLE_AUDIT_LOG: bool = Field(
+        default=True,
+        description="Açıkken her canlı sohbet turu (sorgu, kaynak id'leri, yanıt, citation/safety kararı) JSONL olarak kalıcı yazılır.",
+    )
+    AUDIT_LOG_DIR: Path = Field(default=_BASE_DIR / "logs" / "audit")
+    AUDIT_LOG_REDACT_PII: bool = Field(
+        default=True,
+        description="Açıkken audit kaydındaki sorgu/yanıt PII (e-posta, telefon, TC no vb.) anonymizer ile maskelenir; user_id hash'lenir.",
+    )
+
+    # -------------------------------------------------------------------
     # Değerlendirme (RAGAS)
     # -------------------------------------------------------------------
     RAGAS_ENABLED: bool = Field(default=False)

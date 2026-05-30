@@ -1390,9 +1390,13 @@ with tabs[6]:
 
         with st.chat_message("assistant"):
             # Retrieval senkrondur (spinner); LLM yanıtı akışla render edilir.
+            if "audit_session_id" not in st.session_state:
+                import uuid
+                st.session_state["audit_session_id"] = uuid.uuid4().hex
             with st.spinner("Kaynaklar aranıyor..." if _is_tr else "Recherche des sources..."):
                 _stream, _sources = chat_stream(
-                    _active_msg, history=history_before, language=_lang
+                    _active_msg, history=history_before, language=_lang,
+                    session_id=st.session_state["audit_session_id"],
                 )
             _answer = st.write_stream(_stream)
 

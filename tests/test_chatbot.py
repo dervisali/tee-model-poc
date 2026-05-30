@@ -85,6 +85,12 @@ def test_no_context_fallback_skips_llm(monkeypatch):
 
 
 def test_non_streaming_chat_appends_warning_for_bad_citation(monkeypatch):
+    """Legacy path: grounding kapısı KAPALIYKEN ungrounded yanıt uyarıyla geçer.
+
+    Phase 3 varsayılanı (ENABLE_GROUNDING_GATE=True) artık reddeder
+    (bkz. test_non_streaming_chat_refuses_ungrounded_by_default); bu test eski
+    'uyarı ekle' davranışının bayrak kapalıyken korunduğunu doğrular.
+    """
     import src.chatbot as chatbot
 
     source = {
@@ -95,6 +101,7 @@ def test_non_streaming_chat_appends_warning_for_bad_citation(monkeypatch):
     }
 
     monkeypatch.setattr(chatbot.settings, "MOCK_MODE", False)
+    monkeypatch.setattr(chatbot.settings, "ENABLE_GROUNDING_GATE", False)
     monkeypatch.setattr(chatbot, "_retrieve", lambda query: ("context", [source]))
     monkeypatch.setattr(
         chatbot,
@@ -108,6 +115,29 @@ def test_non_streaming_chat_appends_warning_for_bad_citation(monkeypatch):
     assert out["citation_report"]["invalid_parent_ids"] == ["made_up_parent"]
     assert "atıf" in out["answer"].lower()
     assert out["sources"][0]["_citation_report"]["passed"] is False
+
+
+def test_non_streaming_chat_refuses_ungrounded_by_default(monkeypatch):
+    """Phase 3 varsayılanı: grounding kapısı AÇIKKEN ungrounded yanıt REDDEDİLİR."""
+    import src.chatbot as chatbot
+
+    source = {"filename": "manuel.pdf", "parent_id": "known_parent",
+              "snippet": "snippet", "score": 0.9}
+
+    monkeypatch.setattr(chatbot.settings, "MOCK_MODE", False)
+    monkeypatch.setattr(chatbot.settings, "ENABLE_GROUNDING_GATE", True)
+    monkeypatch.setattr(chatbot, "_retrieve", lambda query: ("context", [source]))
+    monkeypatch.setattr(
+        chatbot, "llm_generate",
+        lambda **kwargs: "Yanıt [Kaynak: manuel.pdf — made_up_parent].",
+    )
+
+    out = chatbot.chat("Halo etkisi nedir?", language="tr")
+
+    assert out["citation_report"]["passed"] is False
+    assert out["safety"]["grounding_allowed"] is False
+    assert "güvenle veremiyorum" in out["answer"]          # reddetme metni
+    assert "made_up_parent" not in out["answer"]            # uydurma içerik servis edilmedi
 
 
 def test_streaming_no_context_fallback_skips_llm(monkeypatch):
