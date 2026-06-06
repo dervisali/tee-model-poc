@@ -19,10 +19,12 @@ from collections import Counter
 from pathlib import Path
 
 from scripts.apply_expert_validation import _item_sources, _load_corpus_basenames, _missing_corpus_sources
+from scripts.lint_expert_review import lint_review
 
 
 REPO = Path(__file__).resolve().parent.parent
 DEFAULT_EVAL = REPO / "evaluation" / "delf_questions.json"
+DEFAULT_REVIEW = REPO / "evaluation" / "delf_questions_expert_review.csv"
 DEFAULT_RESULTS = REPO / "evaluation" / "results"
 DEFAULT_CORPUS_FILES = REPO / "evaluation" / "corpus_files.json"
 
@@ -114,7 +116,50 @@ def _is_dropped(item: dict) -> bool:
     return str(item.get("validation_status", "")).startswith("DROPPED")
 
 
-def eval_status(eval_path: Path, corpus_files_path: Path | None = None) -> dict:
+def _review_preflight_status(
+    *,
+    eval_path: Path,
+    review_path: Path,
+    corpus_files_path: Path,
+) -> dict:
+    if not review_path.exists():
+        return {
+            "path": str(review_path),
+            "checked": False,
+            "ok": False,
+            "errors": ["review CSV missing"],
+            "warnings": [],
+        }
+    try:
+        result = lint_review(
+            eval_path=eval_path,
+            review_path=review_path,
+            corpus_files_path=corpus_files_path,
+            require_complete=True,
+        )
+        return {
+            "path": str(review_path),
+            "checked": True,
+            "ok": result.ok,
+            "rows": result.rows,
+            "errors": result.errors,
+            "warnings": result.warnings,
+        }
+    except Exception as exc:  # noqa: BLE001 - lint evidence must be explicit
+        return {
+            "path": str(review_path),
+            "checked": True,
+            "ok": False,
+            "errors": [f"review CSV lint failed: {type(exc).__name__}: {exc}"],
+            "warnings": [],
+        }
+
+
+def eval_status(
+    eval_path: Path,
+    corpus_files_path: Path | None = None,
+    review_path: Path | None = None,
+) -> dict:
     questions = _load_questions(eval_path)
     question_ids = [str(item.get("id", "")).strip() for item in questions]
     answerable = [q for q in questions if q.get("answerable", True)]
@@ -122,6 +167,7 @@ def eval_status(eval_path: Path, corpus_files_path: Path | None = None) -> dict:
     unvalidated = [q for q in answerable if not _is_validated(q)]
     dropped = [q for q in questions if _is_dropped(q)]
     failures: list[str] = []
+    review_preflight: dict | None = None
     corpus_names: set[str] | None = None
     if corpus_files_path is not None:
         if not corpus_files_path.exists():
@@ -140,6 +186,14 @@ def eval_status(eval_path: Path, corpus_files_path: Path | None = None) -> dict:
             + ", ".join(duplicate_ids[:10])
             + (" ..." if len(duplicate_ids) > 10 else "")
         )
+    if review_path is not None and corpus_files_path is not None:
+        review_preflight = _review_preflight_status(
+            eval_path=eval_path,
+            review_path=review_path,
+            corpus_files_path=corpus_files_path,
+        )
+        if not review_preflight["ok"]:
+            failures.append("current expert review CSV lint failed")
     manifest_path = _validation_manifest_path(eval_path)
     manifest: dict | None = None
     if not manifest_path.exists():
@@ -214,6 +268,7 @@ def eval_status(eval_path: Path, corpus_files_path: Path | None = None) -> dict:
         "dropped": len(dropped),
         "passed": not failures,
         "failures": failures,
+        "review_preflight": review_preflight,
     }
 
 
@@ -991,8 +1046,8 @@ def next_actions(gates: dict) -> list[dict]:
             "owner": "DELF/DALF expert",
             "reason": "Expert validation is required before M3/M4 can be certified.",
             "evidence_needed": (
-                "Completed evaluation/delf_questions_expert_review.csv with a valid "
-                "validation_decision for every answerable row, then a strict validation manifest."
+                "Completed DELF/DALF expert review CSV with a valid validation_decision for every "
+                "answerable row, no AI/LLM-grounded provenance markers, then a strict validation manifest."
             ),
             "current_gap": {
                 "unvalidated_answerable": eval_gate.get("unvalidated_answerable"),
@@ -1085,10 +1140,11 @@ def certification_status(
     eval_path: Path,
     results_dir: Path,
     corpus_files_path: Path | None = None,
+    review_path: Path | None = None,
     repo: Path = REPO,
 ) -> dict:
     gates = {
-        "eval_validation": eval_status(eval_path, corpus_files_path),
+        "eval_validation": eval_status(eval_path, corpus_files_path, review_path),
         "m3_recall": enriched_status(results_dir),
         "m4_citation_grounding": citation_status(results_dir),
         "artifact_consistency": artifact_consistency_status(eval_path, results_dir),
@@ -1107,6 +1163,7 @@ def certification_status(
 def main() -> int:
     parser = argparse.ArgumentParser(description="Inspect retrieval certification status.")
     parser.add_argument("--eval-path", type=Path, default=DEFAULT_EVAL)
+    parser.add_argument("--review", type=Path, default=DEFAULT_REVIEW)
     parser.add_argument("--results-dir", type=Path, default=DEFAULT_RESULTS)
     parser.add_argument("--corpus-files", type=Path, default=DEFAULT_CORPUS_FILES)
     parser.add_argument("--repo", type=Path, default=REPO)
@@ -1116,6 +1173,7 @@ def main() -> int:
         args.eval_path.expanduser(),
         args.results_dir.expanduser(),
         args.corpus_files.expanduser(),
+        args.review.expanduser(),
         args.repo.expanduser(),
     )
     print(json.dumps(status, ensure_ascii=False, indent=2))

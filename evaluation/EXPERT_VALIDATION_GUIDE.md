@@ -12,6 +12,10 @@ same eval/corpus catalog that was sent.
 The goal is to certify that the retrieval evaluation set is fair and grounded in
 the official DELF/DALF corpus before using M3/M4 as production gates.
 
+Only DELF/DALF expert judgment can clear this gate. AI-generated or
+LLM-grounded draft notes may help preparation, but rows labeled that way will be
+rejected by the engineering checks and must be replaced with expert review.
+
 ## What To Review
 
 For each row, check:

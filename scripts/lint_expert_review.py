@@ -19,7 +19,11 @@ from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
-from scripts.apply_expert_validation import VALID_DECISIONS, _item_sources
+from scripts.apply_expert_validation import (
+    VALID_DECISIONS,
+    _item_sources,
+    _non_expert_review_reason,
+)
 
 
 DEFAULT_JSON = Path("evaluation/delf_questions.json")
@@ -130,6 +134,12 @@ def lint_review(
 
         corrected_sources = _split_sources(str(row.get("expert_corrected_sources", "")))
         corrected_answer = str(row.get("expert_corrected_ground_truth", "")).strip()
+        expert_notes = str(row.get("expert_notes", "")).strip()
+        non_expert_reason = _non_expert_review_reason(expert_notes)
+        if non_expert_reason:
+            errors.append(
+                f"{prefix}: expert_notes indicate non-expert/AI review evidence: {non_expert_reason}"
+            )
 
         if decision in {"FIX_SOURCE", "FIX_BOTH"} and not corrected_sources:
             errors.append(f"{prefix}: {decision} requires expert_corrected_sources")

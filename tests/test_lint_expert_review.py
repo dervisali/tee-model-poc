@@ -16,6 +16,7 @@ FIELDNAMES = [
     "validation_decision",
     "expert_corrected_sources",
     "expert_corrected_ground_truth",
+    "expert_notes",
 ]
 
 
@@ -128,6 +129,35 @@ def test_lint_review_reports_unknown_corrected_source(tmp_path):
 
     assert result.ok is False
     assert any("not in corpus_files.json" in error for error in result.errors)
+
+
+def test_lint_review_rejects_ai_grounded_notes_as_expert_evidence(tmp_path):
+    eval_path = tmp_path / "eval.json"
+    corpus_path = tmp_path / "corpus.json"
+    review_path = tmp_path / "review.csv"
+    _write_eval(eval_path)
+    _write_corpus(corpus_path)
+    _write_review(review_path, [
+        {
+            "id": "q1",
+            "validation_decision": "VALIDATED",
+            "expert_notes": "AI-grounded against extracted chunks",
+        },
+        {"id": "q2", "validation_decision": "VALIDATED"},
+    ])
+
+    result = lint_review(
+        eval_path=eval_path,
+        review_path=review_path,
+        corpus_files_path=corpus_path,
+        require_complete=True,
+    )
+
+    assert result.ok is False
+    assert any(
+        "line 2 id=q1: expert_notes indicate non-expert/AI review evidence: ai-grounded" in error
+        for error in result.errors
+    )
 
 
 def test_lint_review_reports_unknown_retained_source_for_validated_row(tmp_path):

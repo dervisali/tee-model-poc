@@ -29,6 +29,20 @@ DEFAULT_REVIEW = Path("evaluation/delf_questions_expert_review.csv")
 DEFAULT_CORPUS_FILES = Path("evaluation/corpus_files.json")
 
 VALID_DECISIONS = {"VALIDATED", "FIX_SOURCE", "FIX_ANSWER", "FIX_BOTH", "DROP"}
+NON_EXPERT_REVIEW_MARKERS = (
+    "ai-grounded",
+    "ai grounded",
+    "llm-grounded",
+    "llm generated",
+    "llm-generated",
+    "machine-generated",
+    "machine generated",
+    "automated review",
+    "chatgpt",
+    "claude",
+    "codex",
+    "gemini",
+)
 
 
 def _load_json(path: Path):
@@ -73,6 +87,14 @@ def _missing_corpus_sources(sources: list[str], corpus_names: set[str] | None) -
         if basename not in corpus_names:
             missing.append(source)
     return missing
+
+
+def _non_expert_review_reason(notes: str) -> str | None:
+    normalized = unicodedata.normalize("NFKC", notes).casefold()
+    for marker in NON_EXPERT_REVIEW_MARKERS:
+        if marker in normalized:
+            return marker
+    return None
 
 
 def _sha256(path: Path) -> str:
@@ -209,6 +231,12 @@ def apply_review(
 
             item = updated_by_id[qid]
             notes = str(row.get("expert_notes", "")).strip()
+            non_expert_reason = _non_expert_review_reason(notes)
+            if non_expert_reason:
+                errors.append(
+                    f"{qid} expert_notes indicate non-expert/AI review evidence: {non_expert_reason}"
+                )
+                continue
             if notes:
                 item["expert_notes"] = notes
 

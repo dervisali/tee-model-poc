@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import csv
 from pathlib import Path
 
 from scripts.apply_expert_validation import default_manifest_path
@@ -13,6 +14,7 @@ from scripts.certification_status import (
     certification_status,
     container_image_status,
     enriched_status,
+    eval_status,
 )
 from scripts.render_cloud_run_deploy import DeployConfig, build_deploy_plan
 from scripts.render_snapshot_publish_plan import SnapshotPublishConfig, build_snapshot_publish_plan
@@ -361,6 +363,46 @@ def test_certification_status_fails_when_eval_unvalidated(tmp_path):
     assert out["next_actions"][0]["owner"] == "DELF/DALF expert"
     assert out["next_actions"][0]["current_gap"]["unvalidated_answerable"] == 1
     assert "scripts.lint_expert_review" in out["next_actions"][0]["commands"][0]
+
+
+def test_eval_status_surfaces_non_expert_review_preflight(tmp_path):
+    eval_path = tmp_path / "eval.json"
+    review_path = tmp_path / "review.csv"
+    corpus_path = tmp_path / "corpus_files.json"
+    questions = [
+        {
+            "id": "q1",
+            "answerable": True,
+            "validation_status": "UNVALIDATED_NEEDS_DELF_EXPERT",
+            "expected_sources": ["source.pdf"],
+        }
+    ]
+    eval_path.write_text(json.dumps(questions), encoding="utf-8")
+    _write_corpus_files(corpus_path, questions)
+    with review_path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(
+            f,
+            fieldnames=[
+                "id",
+                "validation_decision",
+                "expert_corrected_sources",
+                "expert_corrected_ground_truth",
+                "expert_notes",
+            ],
+        )
+        writer.writeheader()
+        writer.writerow({
+            "id": "q1",
+            "validation_decision": "VALIDATED",
+            "expert_notes": "AI-grounded draft",
+        })
+
+    out = eval_status(eval_path, corpus_path, review_path)
+
+    assert out["passed"] is False
+    assert "current expert review CSV lint failed" in out["failures"]
+    assert out["review_preflight"]["ok"] is False
+    assert any("non-expert/AI review evidence" in error for error in out["review_preflight"]["errors"])
 
 
 def test_certification_status_rejects_validated_eval_without_manifest(tmp_path):

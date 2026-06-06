@@ -47,6 +47,11 @@ manifest can be compared against the same source-of-truth files.
 
 When the CSV comes back:
 
+The returned review must represent DELF/DALF expert judgment. Lint/apply reject
+rows whose notes identify the decision as AI-grounded, LLM-generated, or
+otherwise automated evidence; those rows can be used as preparation, but not as
+the certification review.
+
 One-command guarded path:
 
 ```bash

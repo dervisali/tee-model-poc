@@ -142,6 +142,26 @@ def test_apply_review_rejects_missing_required_columns(tmp_path):
     assert not output_path.exists()
 
 
+def test_apply_review_rejects_ai_grounded_notes_as_expert_evidence(tmp_path):
+    eval_path = tmp_path / "eval.json"
+    review_path = tmp_path / "review.csv"
+    output_path = tmp_path / "out.json"
+    _write_eval(eval_path)
+    _write_review(review_path, [
+        {
+            "id": "q1",
+            "validation_decision": "VALIDATED",
+            "expert_notes": "AI-grounded from retrieved snippets",
+        },
+        {"id": "q2", "validation_decision": "VALIDATED"},
+        {"id": "q3", "validation_decision": "DROP"},
+    ])
+
+    with pytest.raises(SystemExit, match="q1 expert_notes indicate non-expert/AI review evidence: ai-grounded"):
+        apply_review(eval_path, review_path, output_path, strict=True)
+    assert not output_path.exists()
+
+
 def test_apply_review_rejects_empty_review_csv(tmp_path):
     eval_path = tmp_path / "eval.json"
     review_path = tmp_path / "review.csv"
