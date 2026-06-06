@@ -118,6 +118,14 @@ def test_tarball_excludes_cache_and_tmp(plain_corpus, tmp_path):
     assert "parents.json.tmp" not in names  # geçici dosya
 
 
+def test_tarball_rejects_link_members(plain_corpus, tmp_path):
+    link = plain_corpus / "linked-parents.json"
+    link.symlink_to(plain_corpus / "parents.json")
+
+    with pytest.raises(P.PersistenceError, match="link desteklenmez"):
+        P.create_snapshot_tarball(plain_corpus, tmp_path / "out" / P.TARBALL_NAME)
+
+
 # ---------------------------------------------------------------------------
 # Yükle → indir round-trip (sahte GCS)
 # ---------------------------------------------------------------------------

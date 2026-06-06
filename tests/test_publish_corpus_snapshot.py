@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from scripts.publish_corpus_snapshot import publish_existing_corpus
+from scripts.publish_corpus_snapshot import BASELINE_CHROMA_DIR, REPO, publish_existing_corpus
 
 
 def test_publish_existing_corpus_uses_readiness_counts(monkeypatch, tmp_path):
@@ -112,6 +112,24 @@ def test_publish_existing_corpus_rejects_symlinked_chroma_dir(tmp_path):
     with pytest.raises(SystemExit, match="symlinked CHROMA_DIR"):
         publish_existing_corpus(
             chroma_dir=link,
+            bucket="bucket",
+            prefix="tee-corpus",
+        )
+
+
+def test_publish_existing_corpus_rejects_path_inside_baseline_chroma():
+    with pytest.raises(SystemExit, match="inside baseline CHROMA_DIR"):
+        publish_existing_corpus(
+            chroma_dir=BASELINE_CHROMA_DIR / "nested_publish",
+            bucket="bucket",
+            prefix="tee-corpus",
+        )
+
+
+def test_publish_existing_corpus_rejects_parent_of_repo():
+    with pytest.raises(SystemExit, match="parent of the repository or baseline CHROMA_DIR"):
+        publish_existing_corpus(
+            chroma_dir=REPO.parent,
             bucket="bucket",
             prefix="tee-corpus",
         )

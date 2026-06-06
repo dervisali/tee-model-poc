@@ -14,6 +14,7 @@ from pathlib import Path
 
 
 REPO = Path(__file__).resolve().parent.parent
+BASELINE_CHROMA_DIR = REPO / "chroma_db"
 
 
 def _is_placeholder(value: str | None) -> bool:
@@ -39,12 +40,28 @@ def _reject_gs_uri_bucket(bucket: str) -> None:
         raise SystemExit("--gcs-bucket/GCS_BUCKET must be a bucket name, not a gs:// URI")
 
 
+def _is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+    except ValueError:
+        return False
+    return True
+
+
 def _resolve_publish_chroma_dir(chroma_dir: Path) -> Path:
     resolved = chroma_dir.expanduser().resolve(strict=False)
-    if resolved == REPO.resolve():
+    repo = REPO.resolve(strict=False)
+    baseline = BASELINE_CHROMA_DIR.resolve(strict=False)
+    if resolved == repo:
         raise SystemExit(f"Refusing to publish repository root as CHROMA_DIR: {resolved}")
-    if resolved.name == "chroma_db":
+    if resolved.name == "chroma_db" or resolved == baseline:
         raise SystemExit(f"Refusing to publish baseline CHROMA_DIR as certified snapshot: {resolved}")
+    if _is_relative_to(resolved, baseline):
+        raise SystemExit(f"Refusing to publish a path inside baseline CHROMA_DIR: {resolved}")
+    if _is_relative_to(repo, resolved) or _is_relative_to(baseline, resolved):
+        raise SystemExit(
+            f"Refusing to publish a parent of the repository or baseline CHROMA_DIR: {resolved}"
+        )
     if chroma_dir.is_symlink() or resolved.is_symlink():
         raise SystemExit(f"Refusing to publish symlinked CHROMA_DIR: {chroma_dir}")
     return resolved

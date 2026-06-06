@@ -151,6 +151,10 @@ def _count_parents(parents_json: Path) -> int:
 
 def _tar_filter(tarinfo: tarfile.TarInfo) -> tarfile.TarInfo | None:
     """Yeniden üretilebilir / sürüm dışı dosyaları tar'dan ayıkla."""
+    if tarinfo.issym() or tarinfo.islnk():
+        raise PersistenceError(f"Güvensiz tar üyesi (link desteklenmez): {tarinfo.name}")
+    if tarinfo.isdev():
+        raise PersistenceError(f"Güvensiz tar üyesi (özel dosya desteklenmez): {tarinfo.name}")
     parts = Path(tarinfo.name).parts
     name = Path(tarinfo.name).name
     if name in _EXCLUDED_NAMES or name.endswith(".tmp"):
