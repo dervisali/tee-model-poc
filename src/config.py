@@ -260,10 +260,10 @@ class Settings(BaseSettings):
         description="recall@k / hit@k raporunun hesaplandığı k değerleri.",
     )
     RECALL_M3_K: int | None = Field(
-        default=None,
+        default=3,
         description=(
-            "M3 (top-source recall ≥%90) hangi k'de ölçülür. None ise "
-            "RETRIEVAL_TOP_K kullanılır (varsayılan 5)."
+            "M3 (top-3 source recall ≥%90) hangi k'de ölçülür. None ise "
+            "RETRIEVAL_TOP_K kullanılır."
         ),
     )
 

@@ -3,7 +3,7 @@
 Objective: certify retrieval quality before production by proving:
 
 - expert validation is complete for answerable eval items,
-- enriched retrieval reaches M3: mean recall@5 >= 90%,
+- enriched retrieval reaches M3: mean recall@3 >= 90%,
 - generated answers keep citation grounding: citation pass rate >= 95%,
 - production deployment is private and GCS-backed.
 
@@ -129,7 +129,7 @@ zero-state directory. It does not write to the baseline `chroma_db`; the
 experiment summary records the before/after baseline fingerprint so
 certification can prove the baseline stayed unchanged.
 
-Gate: `recall_with_rerank.m3_recall_at_k >= 0.90` at `m3_k=5`.
+Gate: `recall_with_rerank.m3_recall_at_k >= 0.90` at `m3_k=3`.
 `scripts.certification_status` also verifies that the artifact came from the
 controlled enriched run: contextual enrichment on, paragraph chunking, 3072-dim
 embeddings, cross-lingual BM25 off, clean corpus preflight, zero unvalidated

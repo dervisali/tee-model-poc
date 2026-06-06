@@ -5,7 +5,7 @@ This script does not run ingestion, retrieval, or generation. It only inspects
 current files and tells whether the evidence required by the production gate is
 present:
   - all answerable eval items expert-validated,
-  - latest enriched experiment has M3 recall@5 >= 90%,
+  - latest enriched experiment has M3 recall@3 >= 90%,
   - latest citation-grounding artifact has citation pass rate >= 95%,
   - latest Cloud Run deploy plan proves private, GCS-backed serving.
 """
@@ -234,8 +234,8 @@ def enriched_status(results_dir: Path) -> dict:
         failures.append("m3_recall_at_k missing")
     elif m3 < 0.90:
         failures.append("m3_recall_at_k below 0.90")
-    if m3_k != 5:
-        failures.append("M3 must be measured at k=5")
+    if m3_k != 3:
+        failures.append("M3 must be measured at k=3")
 
     expected_metadata = {
         "contextual_enrichment": True,
@@ -1012,7 +1012,7 @@ def next_actions(gates: dict) -> list[dict]:
         actions.append({
             "gate": "m3_recall",
             "owner": "engineering",
-            "reason": "M3 requires an enriched, non-baseline retrieval run with recall@5 >= 0.90.",
+            "reason": "M3 requires an enriched, non-baseline retrieval run with recall@3 >= 0.90.",
             "evidence_needed": "evaluation/results/enriched_experiment_*.json plus linked recall JSON/Markdown artifacts.",
             "blocked_by": ["eval_validation"] if not eval_gate["passed"] else [],
             "commands": commands,

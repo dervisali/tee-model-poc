@@ -8,7 +8,8 @@
 > unmet gate is a **no-go** — do not paper over it.
 
 - **Status:** 🟡 In progress — Phase 1 (Persistence) complete; Phase 2 (Retrieval) measurable
-  (**live baseline M3 = 79% recall@5; best lever (reranker) = 83%; M3 ≥ 90% NOT met**, gate not
+  (**live baseline top-3 recall = 70%; archived recall@5 = 79%; best archived recall@5 lever
+  (reranker) = 83%; M3 ≥ 90% NOT met**, gate not
   certified); Phase 3 (Safety) defense-in-depth built + unit-tested (input screen 14/14 adversarial,
   grounding refusal gate, rate limit, audit log w/ PII redaction — behavioral layers pending a live
   run); Phases 4–5 pending.
@@ -34,8 +35,9 @@
 **Unsupervised production is a 🔴 NO-GO, and Phase 2 is the hard blocker.** Phase 1 (durable
 persistence) is done and verified. Phase 2 retrieval is now genuinely **measurable** (the eval ground
 truth was fixed from fictional → real corpus filenames, and a Unicode NFC/NFD matching bug was
-fixed). On the **live** eval the committed-default config gives **M3 = mean recall@5 = 79%**, and
-**no non-destructive lever reaches the 90% gate** — the best (LLM reranker) is **83%**;
+fixed). On the **live** eval the committed-default config gives **top-3 recall = 70%**
+(archived recall@5 = 79%), and the archived non-destructive lever sweep never showed enough margin
+to clear the 90% gate — the best recall@5 run (LLM reranker) was **83%**;
 cross-lingual BM25 is worse (77%). On top of that the ground truth is **UNVALIDATED** (no
 DELF-expert sign-off) and **M4 (citation accuracy) is unmeasured**. Reaching M3 will require the
 destructive re-ingest levers (contextual enrichment; grille/PPTX/OCR extraction quality) and/or
@@ -81,16 +83,17 @@ ChromaDB is local-only; Cloud Run's ephemeral FS drops it on restart.
 
 ---
 
-## Phase 2 — Retrieval quality  ·  Status: 🔴  ·  **GATE NOT MET — live baseline M3 = 79%; best non-destructive lever (reranker) = 83% < 90%; GT unvalidated; M4 unmeasured**
+## Phase 2 — Retrieval quality  ·  Status: 🔴  ·  **GATE NOT MET — live baseline top-3 recall = 70%; archived best recall@5 lever = 83% < 90%; GT unvalidated; M4 unmeasured**
 
-Milestones: **M3** = top-source recall ≥ 90% · **M4** = citation accuracy ≥ 95%.
+Milestones: **M3** = top-3 source recall ≥ 90% · **M4** = citation accuracy ≥ 95%.
 
 > **⚠️ M3 IS NOT MET.** Two real defects were fixed to make this measurable: (1) the v1 eval set's
 > `expected_sources` were **fictional** (only 1 of 19 filenames existed) → all recall was ~0;
 > (2) the recall harness compared filenames without **Unicode NFC** normalization, while macOS corpus
 > filenames are NFD ('é' = e + U+0301) and eval gold is NFC — so 4 accented gold sources silently
-> mismatched. Both fixed. On the resulting **live** eval, the committed default gives **M3 = recall@5
-> = 79%** and **no retrieval-time lever crosses 90%** (reranker 83%, cross-lingual 77%). The ground
+> mismatched. Both fixed. On the resulting **live** eval, the committed default gives **top-3 recall
+> = 70%** (archived recall@5 = 79%), and **no retrieval-time lever crosses 90%** in the archived
+> recall@5 sweep (reranker 83%, cross-lingual 77%). The ground
 > truth is also **UNVALIDATED** and **M4 is unmeasured**.
 >
 > **Note on MOCK_MODE:** retrieval/embeddings are NOT gated by `MOCK_MODE` (no such branch in
@@ -154,20 +157,20 @@ Detail: `evaluation/results/lever_summary_20260530.md`.
 unmeasured numbers and has been reverted.)
 
 **Recommended retrieval config for the NEXT round (not a pass):** `ENABLE_RERANKING=true`,
-`ENABLE_CROSS_LINGUAL_BM25=false`, `HYBRID_ALPHA=0.7`. Even with the reranker M3 is 83% < 90%, so
-this is a starting point for the destructive-lever round, not a certification.
+`ENABLE_CROSS_LINGUAL_BM25=false`, `HYBRID_ALPHA=0.7`. Even with the reranker, archived recall@5 was
+83% < 90%, so this is a starting point for the destructive-lever round, not a certification.
 
 ### 2d. Final scores vs milestones
 
 | Metric | Target | Achieved (live) | Met? |
 |---|---|---|---|
-| Top-source recall (M3) — baseline | ≥ 90% | 0.79 | ❌ no |
-| Top-source recall (M3) — reranker on (best lever) | ≥ 90% | 0.83 | ❌ no |
+| Top-3 source recall (M3) — baseline | ≥ 90% | 0.70 | ❌ no |
+| Top-3 source recall (M3) — reranker on | ≥ 90% | not certified at k=3 | ❌ no |
 | Citation accuracy (M4) | ≥ 95% | not measured | ❌ pending |
 | RAGAS faithfulness / context_precision | _(set)_ | not measured | pending |
 
-> **If M3/M4 are not met, unsupervised go-live is BLOCKED.** **M3 is NOT met** (0.79 baseline; 0.83
-> best non-destructive lever, both < 0.90) and **M4 is unmeasured**. Unsupervised go-live is
+> **If M3/M4 are not met, unsupervised go-live is BLOCKED.** **M3 is NOT met** (0.70 baseline top-3;
+> archived best recall@5 non-destructive lever was 0.83, still < 0.90) and **M4 is unmeasured**. Unsupervised go-live is
 > **BLOCKED**. Next steps to attempt the gate: (1) DELF-expert validation of the eval set; (2) the
 > destructive re-ingest levers (contextual enrichment; grille/PPTX/OCR extraction quality) targeting
 > the grille/descripteur/B2 buckets; (3) commit the reranker; (4) measure M4. All require explicit
@@ -250,7 +253,7 @@ Adversarial results — deterministic input-screen layer (`python -m scripts.adv
   settings, and missing startup corpus enforcement.
 - Runbook: `docs/cloud-run-deploy.md`.
 - CI quality gate (eval metrics block regressions): still pending. Required thresholds remain
-  certification status green: expert validation complete, controlled enriched-ingest M3 recall@5 ≥ 90%,
+  certification status green: expert validation complete, controlled enriched-ingest M3 recall@3 ≥ 90%,
   M4 citation grounding ≥ 95%, and deployment safety artifact green. The M3 gate rejects naked recall
   numbers unless the artifact also proves clean preflight, contextual enrichment, 3072-dim embeddings,
   a ready non-baseline experiment DB, and unchanged baseline `chroma_db` fingerprints before/after the

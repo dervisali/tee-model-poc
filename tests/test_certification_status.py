@@ -138,7 +138,7 @@ def _controlled_enriched_artifact(
         },
         "recall_with_rerank": {
             "m3_recall_at_k": m3,
-            "m3_k": 5,
+            "m3_k": 3,
             "n_questions_evaluated": n,
         },
     }
@@ -149,7 +149,7 @@ def _write_controlled_enriched_artifact(results, artifact, name="enriched_experi
     metadata = artifact.get("metadata", {})
     n = recall.get("n_questions_evaluated", 0)
     m3 = recall.get("m3_recall_at_k")
-    m3_k = recall.get("m3_k", 5)
+    m3_k = recall.get("m3_k", 3)
     report_path = results / f"recall_for_{name.removesuffix('.json')}.json"
     md_path = results / f"recall_for_{name.removesuffix('.json')}.md"
     report = {
@@ -245,14 +245,14 @@ def test_recall_gate_summary_marks_m3_pass():
             "artifact_json": "x.json",
             "artifact_md": "x.md",
             "n_questions_evaluated": 50,
-            "m3_k": 5,
+            "m3_k": 3,
             "m3_recall_at_k": 0.91,
             "m3_hit_at_k": 0.96,
         },
         "aggregate": {
             "overall": {
                 "recall@1": 0.5,
-                "recall@3": 0.8,
+                "recall@3": 0.91,
                 "recall@5": 0.91,
                 "recall@10": 0.97,
             }
@@ -384,11 +384,11 @@ def test_enriched_status_rejects_experiment_dir_inside_baseline(tmp_path):
         json.dumps({
             "metadata": {
                 "n_questions_evaluated": 1,
-                "m3_k": 5,
+                "m3_k": 3,
                 "m3_recall_at_k": 0.91,
                 "test_set": "/tmp/delf_questions.validated.json",
             },
-            "aggregate": {"overall": {"n": 1, "recall@5": 0.91}},
+            "aggregate": {"overall": {"n": 1, "recall@3": 0.91}},
             "per_question": [{"id": "q1"}],
         }),
         encoding="utf-8",
@@ -1198,7 +1198,7 @@ def test_certification_status_rejects_naked_m3_recall_artifact(tmp_path):
     )
     _write_validation_manifest(eval_path)
     (results / "enriched_experiment_20260530T000000Z.json").write_text(
-        json.dumps({"recall_with_rerank": {"m3_recall_at_k": 0.95, "m3_k": 5}}),
+        json.dumps({"recall_with_rerank": {"m3_recall_at_k": 0.95, "m3_k": 3}}),
         encoding="utf-8",
     )
 
@@ -1248,7 +1248,7 @@ def test_certification_status_rejects_m3_recall_artifact_mismatch(tmp_path):
     report_path = results / "recall_for_enriched_experiment_20260530T000000Z.json"
     report = json.loads(report_path.read_text(encoding="utf-8"))
     report["metadata"]["m3_recall_at_k"] = 0.50
-    report["aggregate"]["overall"]["recall@5"] = 0.50
+    report["aggregate"]["overall"]["recall@3"] = 0.50
     report["per_question"].pop()
     report_path.write_text(json.dumps(report), encoding="utf-8")
 
