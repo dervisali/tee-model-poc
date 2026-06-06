@@ -86,7 +86,7 @@ def _tesseract_image_to_string(image, *, lang: str, source_path: "Path | None" =
 
 
 def _tesseract_via_subprocess(image, *, lang: str, source_path: "Path | None" = None) -> str:
-    """tesseract ikilisini doğrudan çalıştırır; stdout'u hoşgörüyle çözer, stderr'i yok sayar."""
+    """tesseract ikilisini doğrudan çalıştırır; stdout/stderr'i hoşgörüyle çözer."""
     import os
     import shutil
     import subprocess
@@ -105,11 +105,19 @@ def _tesseract_via_subprocess(image, *, lang: str, source_path: "Path | None" = 
         proc = subprocess.run(
             [binary, target, "stdout", "-l", lang],
             capture_output=True,
+            timeout=90,
         )
         # tesseract sıfır-olmayan çıkış kodunda bile çoğu zaman stdout'a
         # kullanılabilir metin yazar. stdout'u hoşgörüyle çöz; stderr'i asla
         # katı çözme.
-        return proc.stdout.decode("utf-8", errors="replace")
+        text = proc.stdout.decode("utf-8", errors="replace")
+        if proc.returncode != 0 and not text.strip():
+            stderr = proc.stderr.decode("utf-8", errors="replace").strip()
+            detail = f": {stderr}" if stderr else ""
+            raise LoaderError(f"OCR başarısız: tesseract exit {proc.returncode}{detail}")
+        return text
+    except subprocess.TimeoutExpired as exc:
+        raise LoaderError("OCR başarısız: tesseract timeout") from exc
     finally:
         if tmp_path is not None:
             try:

@@ -74,8 +74,9 @@ def test_tesseract_via_subprocess_ocrs_source_file_and_decodes_leniently(monkeyp
     stdout, UTF-8 olmayan baytlar olsa bile hoşgörüyle çözülür."""
     captured = {}
 
-    def fake_run(cmd, capture_output):
+    def fake_run(cmd, capture_output, timeout):
         captured["cmd"] = cmd
+        captured["timeout"] = timeout
         return types.SimpleNamespace(returncode=0, stdout="Café".encode("utf-8") + b"\xff", stderr=b"\xff noise")
 
     monkeypatch.setattr("subprocess.run", fake_run)
@@ -86,4 +87,30 @@ def test_tesseract_via_subprocess_ocrs_source_file_and_decodes_leniently(monkeyp
 
     assert "Café" in out                  # valid text preserved, no crash on 0xff
     assert str(src) in captured["cmd"]     # ran on the original file, not a temp copy
+    assert captured["timeout"] == 90
     assert "-l" in captured["cmd"] and "fra" in captured["cmd"]
+
+
+def test_tesseract_via_subprocess_raises_when_tesseract_fails_without_stdout(monkeypatch, tmp_path):
+    def fake_run(cmd, capture_output, timeout):
+        return types.SimpleNamespace(returncode=1, stdout=b"", stderr=b"Error opening data file fra.traineddata")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    src = tmp_path / "img.jpeg"
+    src.write_bytes(b"not-a-real-image")
+
+    with pytest.raises(loaders.LoaderError, match="tesseract exit 1"):
+        loaders._tesseract_via_subprocess(object(), lang="fra", source_path=src)
+
+
+def test_tesseract_via_subprocess_keeps_stdout_from_nonzero_exit(monkeypatch, tmp_path):
+    def fake_run(cmd, capture_output, timeout):
+        return types.SimpleNamespace(returncode=1, stdout=b"usable OCR text", stderr=b"\xff warning")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    src = tmp_path / "img.jpeg"
+    src.write_bytes(b"not-a-real-image")
+
+    out = loaders._tesseract_via_subprocess(object(), lang="fra", source_path=src)
+
+    assert out == "usable OCR text"
