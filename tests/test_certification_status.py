@@ -185,6 +185,17 @@ def _write_controlled_snapshot_plan(
     chroma_path.mkdir(parents=True, exist_ok=True)
     (chroma_path / "parents.json").write_text('{"p1": {"text": "ok"}}', encoding="utf-8")
     (chroma_path / "bm25_index.pkl").write_bytes(b"bm25")
+    (chroma_path / "chroma.sqlite3").write_bytes(b"SQLite format 3\x00" + b"\x01" * 256)
+    index_dir = chroma_path / "abc-collection"
+    index_dir.mkdir(exist_ok=True)
+    for filename in (
+        "data_level0.bin",
+        "header.bin",
+        "length.bin",
+        "link_lists.bin",
+        "index_metadata.pickle",
+    ):
+        (index_dir / filename).write_bytes(b"index")
     plan = build_snapshot_publish_plan(
         SnapshotPublishConfig(
             chroma_dir=chroma_dir,
@@ -1201,6 +1212,26 @@ def test_certification_status_rejects_snapshot_plan_without_readiness_evidence(t
     failures = out["gates"]["snapshot_publication"]["failures"]
     assert "snapshot publish chroma_dir_readiness must pass" in failures
     assert "snapshot publish safety invariant chroma_dir_ready must be true" in failures
+
+
+def test_certification_status_rejects_snapshot_plan_without_dense_storage_evidence(tmp_path):
+    eval_path = tmp_path / "eval.json"
+    results = tmp_path / "results"
+    results.mkdir()
+    eval_path.write_text(json.dumps(_validated_eval_items()), encoding="utf-8")
+    plan = _write_controlled_snapshot_plan(results)
+    plan["chroma_dir_readiness"].pop("chroma_sqlite")
+    plan["chroma_dir_readiness"].pop("hnsw_index_dirs")
+    (results / "corpus_snapshot_publish_plan_20260530T000000Z.json").write_text(
+        json.dumps(plan),
+        encoding="utf-8",
+    )
+
+    out = certification_status(eval_path, results)
+
+    failures = out["gates"]["snapshot_publication"]["failures"]
+    assert "snapshot publish readiness must include chroma_sqlite" in failures
+    assert "snapshot publish readiness must include at least one HNSW index directory" in failures
 
 
 def test_certification_status_rejects_snapshot_bucket_uri_in_runtime_fields(tmp_path):

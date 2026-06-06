@@ -15,6 +15,17 @@ def _make_ready_chroma_dir(path):
     path.mkdir(parents=True, exist_ok=True)
     (path / "parents.json").write_text('{"p1": {"text": "ok"}}', encoding="utf-8")
     (path / "bm25_index.pkl").write_bytes(b"bm25")
+    (path / "chroma.sqlite3").write_bytes(b"SQLite format 3\x00" + b"\x01" * 256)
+    index_dir = path / "abc-collection"
+    index_dir.mkdir()
+    for filename in (
+        "data_level0.bin",
+        "header.bin",
+        "length.bin",
+        "link_lists.bin",
+        "index_metadata.pickle",
+    ):
+        (index_dir / filename).write_bytes(b"index")
 
 
 def test_build_snapshot_publish_plan_records_certified_source_and_destination(tmp_path):
@@ -41,6 +52,8 @@ def test_build_snapshot_publish_plan_records_certified_source_and_destination(tm
     assert plan["safety_invariants"]["non_baseline_chroma_dir"] is True
     assert plan["safety_invariants"]["chroma_dir_ready"] is True
     assert plan["chroma_dir_readiness"]["ok"] is True
+    assert plan["chroma_dir_readiness"]["chroma_sqlite"] == str(chroma_dir.resolve() / "chroma.sqlite3")
+    assert len(plan["chroma_dir_readiness"]["hnsw_index_dirs"]) == 1
 
     out = write_snapshot_publish_plan(plan, tmp_path)
     assert out.name.startswith("corpus_snapshot_publish_plan_")
@@ -75,6 +88,21 @@ def test_build_snapshot_publish_plan_rejects_incomplete_chroma_dir(tmp_path):
     chroma_dir.mkdir()
 
     with pytest.raises(SystemExit, match="Cannot render snapshot publish plan for incomplete CHROMA_DIR"):
+        build_snapshot_publish_plan(
+            SnapshotPublishConfig(
+                chroma_dir=str(chroma_dir),
+                gcs_bucket="delf-corpus-prod",
+            )
+        )
+
+
+def test_build_snapshot_publish_plan_rejects_missing_dense_chroma_storage(tmp_path):
+    chroma_dir = tmp_path / "chroma_db_enriched"
+    chroma_dir.mkdir()
+    (chroma_dir / "parents.json").write_text('{"p1": {"text": "ok"}}', encoding="utf-8")
+    (chroma_dir / "bm25_index.pkl").write_bytes(b"bm25")
+
+    with pytest.raises(SystemExit, match="chroma.sqlite3 missing"):
         build_snapshot_publish_plan(
             SnapshotPublishConfig(
                 chroma_dir=str(chroma_dir),

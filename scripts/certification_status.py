@@ -841,6 +841,24 @@ def snapshot_publication_status(results_dir: Path) -> dict:
         failures.append("snapshot publish chroma_dir_readiness must pass")
     elif _norm_path(str(readiness.get("path", ""))) != _norm_path(chroma_dir):
         failures.append("snapshot publish readiness path must match metadata chroma_dir")
+    else:
+        chroma_sqlite = str(readiness.get("chroma_sqlite", ""))
+        hnsw_dirs = readiness.get("hnsw_index_dirs")
+        if not chroma_sqlite:
+            failures.append("snapshot publish readiness must include chroma_sqlite")
+        elif _norm_path(chroma_sqlite) != _norm_path(str(Path(chroma_dir) / "chroma.sqlite3")):
+            failures.append("snapshot publish chroma_sqlite must be inside metadata chroma_dir")
+        if not isinstance(hnsw_dirs, list) or not hnsw_dirs:
+            failures.append("snapshot publish readiness must include at least one HNSW index directory")
+        else:
+            chroma_path = Path(chroma_dir).expanduser().resolve(strict=False)
+            outside_hnsw_dirs = [
+                item
+                for item in hnsw_dirs
+                if not _is_relative_to(Path(str(item)).expanduser().resolve(strict=False), chroma_path)
+            ]
+            if outside_hnsw_dirs:
+                failures.append("snapshot publish HNSW index dirs must be inside metadata chroma_dir")
     invariants = data.get("safety_invariants", {})
     if invariants.get("chroma_dir_ready") is not True:
         failures.append("snapshot publish safety invariant chroma_dir_ready must be true")

@@ -201,8 +201,9 @@ python3 -m scripts.render_snapshot_publish_plan \
 ```
 
 The snapshot-plan renderer refuses an incomplete `chroma_db_enriched` directory
-and records readiness evidence for `parents.json` and `bm25_index.pkl`;
-certification rejects snapshot-publication artifacts without that evidence. The
+and records readiness evidence for `parents.json`, `bm25_index.pkl`,
+`chroma.sqlite3`, and Chroma HNSW index files; certification rejects
+snapshot-publication artifacts without that evidence. The
 publication command is `python -m scripts.publish_corpus_snapshot`, which
 publishes the already-certified local corpus without running ingestion again.
 

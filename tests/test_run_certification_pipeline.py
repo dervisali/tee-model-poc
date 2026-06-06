@@ -78,6 +78,17 @@ def test_write_pipeline_snapshot_plan_uses_deploy_bucket_and_run_id(tmp_path):
     chroma_dir.mkdir()
     (chroma_dir / "parents.json").write_text('{"p1": {"text": "ok"}}', encoding="utf-8")
     (chroma_dir / "bm25_index.pkl").write_bytes(b"bm25")
+    (chroma_dir / "chroma.sqlite3").write_bytes(b"SQLite format 3\x00" + b"\x01" * 256)
+    index_dir = chroma_dir / "abc-collection"
+    index_dir.mkdir()
+    for filename in (
+        "data_level0.bin",
+        "header.bin",
+        "length.bin",
+        "link_lists.bin",
+        "index_metadata.pickle",
+    ):
+        (index_dir / filename).write_bytes(b"index")
     args = Namespace(
         chroma_dir=chroma_dir,
         snapshot_gcs_bucket=None,

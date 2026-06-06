@@ -81,8 +81,8 @@ python -m scripts.render_snapshot_publish_plan \
 ```
 
 The renderer refuses an incomplete `--chroma-dir`; it records readiness evidence
-that `parents.json` and `bm25_index.pkl` exist before a snapshot publication
-artifact can pass certification.
+that `parents.json`, `bm25_index.pkl`, `chroma.sqlite3`, and Chroma HNSW index
+files exist before a snapshot publication artifact can pass certification.
 
 ```bash
 PERSISTENCE_BACKEND=gcs \

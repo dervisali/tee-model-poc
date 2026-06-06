@@ -99,18 +99,39 @@ def _chroma_dir_readiness(chroma_dir: Path) -> dict:
         failures.append(f"CHROMA_DIR is not a directory: {chroma_dir}")
     if chroma_dir.is_symlink():
         failures.append(f"CHROMA_DIR must not be a symlink: {chroma_dir}")
+    sqlite_path = chroma_dir / "chroma.sqlite3"
+    hnsw_files = {
+        "data_level0.bin",
+        "header.bin",
+        "length.bin",
+        "link_lists.bin",
+        "index_metadata.pickle",
+    }
+    hnsw_dirs: list[Path] = []
     for filename in ("parents.json", "bm25_index.pkl"):
         path = chroma_dir / filename
         if not path.exists():
             failures.append(f"{filename} missing: {path}")
         elif path.stat().st_size == 0:
             failures.append(f"{filename} is empty: {path}")
+    if not sqlite_path.exists():
+        failures.append(f"chroma.sqlite3 missing: {sqlite_path}")
+    elif sqlite_path.stat().st_size == 0:
+        failures.append(f"chroma.sqlite3 is empty: {sqlite_path}")
+    if chroma_dir.exists() and chroma_dir.is_dir():
+        for child in chroma_dir.iterdir():
+            if child.is_dir() and all((child / filename).exists() for filename in hnsw_files):
+                hnsw_dirs.append(child)
+        if not hnsw_dirs:
+            failures.append("Chroma HNSW index directory missing or incomplete")
     return {
         "ok": not failures,
         "failures": failures,
         "path": str(chroma_dir),
         "parents_json": str(chroma_dir / "parents.json"),
         "bm25_index": str(chroma_dir / "bm25_index.pkl"),
+        "chroma_sqlite": str(sqlite_path),
+        "hnsw_index_dirs": [str(path) for path in hnsw_dirs],
     }
 
 
