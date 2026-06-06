@@ -500,6 +500,16 @@ def _service_account_project(service_account: str) -> str | None:
     return service_account.split("@", 1)[1][:-len(suffix)]
 
 
+def _valid_service_account_email(service_account: str) -> bool:
+    return "@" in service_account and service_account.endswith(".iam.gserviceaccount.com")
+
+
+def _valid_invoker_member(invoker: str | None) -> bool:
+    if not invoker:
+        return False
+    return invoker.startswith(("group:", "user:", "serviceAccount:", "domain:"))
+
+
 def _row_ids(rows: object) -> list[str] | None:
     if not isinstance(rows, list):
         return None
@@ -599,6 +609,8 @@ def deployment_status(results_dir: Path) -> dict:
         and service_account_project != project
     ):
         failures.append("service_account project must match deploy project")
+    if service_account and not _placeholder(service_account) and not _valid_service_account_email(service_account):
+        failures.append("service_account must be a service account email")
 
     deploy_expected_flags = {
         "--project": ("project", project),
@@ -658,6 +670,8 @@ def deployment_status(results_dir: Path) -> dict:
     invoker = metadata.get("invoker_member")
     if _placeholder(str(invoker or "")):
         failures.append("invoker_member is missing or placeholder")
+    elif not _valid_invoker_member(str(invoker)):
+        failures.append("invoker_member must be an IAM member with group:, user:, serviceAccount:, or domain:")
     if invoker in {"allUsers", "allAuthenticatedUsers"}:
         failures.append("invoker_member must not be public")
     if not invoker_command:

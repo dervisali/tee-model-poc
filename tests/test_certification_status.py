@@ -751,6 +751,49 @@ def test_certification_status_rejects_cross_project_deploy_refs(tmp_path):
     assert "service_account project must match deploy project" in failures
 
 
+def test_certification_status_rejects_malformed_deploy_identities(tmp_path):
+    eval_path = tmp_path / "eval.json"
+    results = tmp_path / "results"
+    results.mkdir()
+    eval_path.write_text(
+        json.dumps([
+            {
+                "id": "q1",
+                "answerable": True,
+                "validation_status": "VALIDATED_BY_DELF_EXPERT",
+                "expected_sources": ["source.pdf"],
+            }
+        ]),
+        encoding="utf-8",
+    )
+    _write_validation_manifest(eval_path)
+    plan = build_deploy_plan(
+        DeployConfig(
+            project="woven-operative-491610-u6",
+            image="us-central1-docker.pkg.dev/woven-operative-491610-u6/apps/delf:abc123",
+            service_account="delf-runtime@woven-operative-491610-u6.iam.gserviceaccount.com",
+            gcs_bucket="delf-corpus-prod",
+            invoker="group:delf-examiners@org.test",
+            certification_run_id="run-1",
+        )
+    )
+    plan["metadata"]["service_account"] = "delf-runtime"
+    plan["deploy_command"][plan["deploy_command"].index("--service-account") + 1] = "delf-runtime"
+    plan["metadata"]["invoker_member"] = "delf-examiners@org.test"
+    plan["invoker_command"][plan["invoker_command"].index("--member") + 1] = "delf-examiners@org.test"
+    (results / "cloud_run_deploy_plan_20260530T000000Z.json").write_text(
+        json.dumps(plan),
+        encoding="utf-8",
+    )
+    _write_controlled_snapshot_plan(results)
+
+    out = certification_status(eval_path, results)
+
+    failures = out["gates"]["deployment_safety"]["failures"]
+    assert "service_account must be a service account email" in failures
+    assert "invoker_member must be an IAM member with group:, user:, serviceAccount:, or domain:" in failures
+
+
 def test_certification_status_rejects_deploy_plan_without_runtime_iam(tmp_path):
     eval_path = tmp_path / "eval.json"
     results = tmp_path / "results"

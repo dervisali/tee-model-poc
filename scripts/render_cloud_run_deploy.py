@@ -125,13 +125,25 @@ def _service_account_project(service_account: str) -> str | None:
     return service_account.split("@", 1)[1][:-len(suffix)]
 
 
+def _validate_service_account_email(service_account: str) -> None:
+    if "@" not in service_account or not service_account.endswith(".iam.gserviceaccount.com"):
+        raise SystemExit("--service-account must be a service account email ending in .iam.gserviceaccount.com")
+
+
 def _validate_project_scoped_refs(config: DeployConfig) -> None:
+    _validate_service_account_email(config.service_account)
     image_project = _artifact_registry_project(config.image)
     if image_project is not None and image_project != config.project:
         raise SystemExit("--image Artifact Registry project must match --project")
     service_account_project = _service_account_project(config.service_account)
     if service_account_project is not None and service_account_project != config.project:
         raise SystemExit("--service-account project must match --project")
+
+
+def _validate_invoker_member(invoker: str) -> None:
+    allowed_prefixes = ("group:", "user:", "serviceAccount:", "domain:")
+    if not invoker.startswith(allowed_prefixes):
+        raise SystemExit("--invoker must be an IAM member such as group:, user:, serviceAccount:, or domain:")
 
 
 def _env_arg(env_vars: dict[str, str]) -> str:
@@ -204,6 +216,7 @@ def render_invoker_command(config: DeployConfig) -> list[str] | None:
     if not config.invoker:
         return None
     _reject_placeholder("--invoker", config.invoker)
+    _validate_invoker_member(config.invoker)
     if config.invoker in {"allUsers", "allAuthenticatedUsers"}:
         raise SystemExit("--invoker must not be public")
     return [
@@ -219,6 +232,7 @@ def render_runtime_iam_commands(config: DeployConfig) -> list[list[str]]:
     _require_non_empty("--project", config.project)
     _require_non_empty("--service-account", config.service_account)
     _require_non_empty("--gcs-bucket", config.gcs_bucket)
+    _validate_service_account_email(config.service_account)
     bucket = config.gcs_bucket
     if not bucket.startswith("gs://"):
         bucket = f"gs://{bucket}"

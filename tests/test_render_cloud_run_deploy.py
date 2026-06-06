@@ -155,6 +155,18 @@ def test_deploy_command_rejects_cross_project_runtime_references(kwargs, message
         _command(DeployConfig(**params))
 
 
+def test_deploy_command_rejects_malformed_service_account():
+    with pytest.raises(SystemExit, match="service account email"):
+        _command(
+            DeployConfig(
+                project="p",
+                image="us-central1-docker.pkg.dev/p/apps/delf:abc123",
+                service_account="delf-runtime",
+                gcs_bucket="bucket",
+            )
+        )
+
+
 def test_invoker_command_is_explicit_and_optional():
     config = DeployConfig(
         project="p",
@@ -200,6 +212,19 @@ def test_invoker_command_rejects_public_or_placeholder_invoker(invoker):
                 service_account="sa@p.iam.gserviceaccount.com",
                 gcs_bucket="bucket",
                 invoker=invoker,
+            )
+        )
+
+
+def test_invoker_command_rejects_member_without_iam_prefix():
+    with pytest.raises(SystemExit, match="--invoker must be an IAM member"):
+        render_invoker_command(
+            DeployConfig(
+                project="p",
+                image="img",
+                service_account="sa@p.iam.gserviceaccount.com",
+                gcs_bucket="bucket",
+                invoker="examiners@org.test",
             )
         )
 
