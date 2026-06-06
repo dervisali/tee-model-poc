@@ -87,6 +87,28 @@ def default_manifest_path(output_path: Path) -> Path:
     return output_path.with_suffix(".validation_manifest.json")
 
 
+def _same_path(a: Path, b: Path) -> bool:
+    return a.expanduser().resolve(strict=False) == b.expanduser().resolve(strict=False)
+
+
+def _validate_output_path(
+    *,
+    json_path: Path,
+    review_path: Path,
+    output_path: Path,
+    corpus_files_path: Path | None,
+) -> None:
+    collisions = [
+        ("input eval JSON", json_path),
+        ("expert review CSV", review_path),
+    ]
+    if corpus_files_path is not None:
+        collisions.append(("corpus catalog", corpus_files_path))
+    for label, path in collisions:
+        if _same_path(output_path, path):
+            raise SystemExit(f"--output must not overwrite the {label}: {path}")
+
+
 def _write_manifest(
     *,
     json_path: Path,
@@ -123,6 +145,12 @@ def apply_review(
     strict: bool,
     corpus_files_path: Path | None = None,
 ) -> dict:
+    _validate_output_path(
+        json_path=json_path,
+        review_path=review_path,
+        output_path=output_path,
+        corpus_files_path=corpus_files_path,
+    )
     data, questions = _load_json(json_path)
     question_ids = [str(item.get("id", "")).strip() for item in questions]
     by_id = {str(item.get("id", "")).strip(): item for item in questions}

@@ -154,6 +154,36 @@ def test_apply_review_rejects_empty_review_csv(tmp_path):
     assert not output_path.exists()
 
 
+def test_apply_review_refuses_to_overwrite_input_eval(tmp_path):
+    eval_path = tmp_path / "eval.json"
+    review_path = tmp_path / "review.csv"
+    _write_eval(eval_path)
+    _write_review(review_path, [{"id": "q1", "validation_decision": "VALIDATED"}])
+
+    with pytest.raises(SystemExit, match="--output must not overwrite the input eval JSON"):
+        apply_review(eval_path, review_path, eval_path, strict=True)
+
+
+def test_apply_review_refuses_to_overwrite_review_or_corpus_catalog(tmp_path):
+    eval_path = tmp_path / "eval.json"
+    review_path = tmp_path / "review.csv"
+    corpus_path = tmp_path / "corpus_files.json"
+    _write_eval(eval_path)
+    _write_corpus(corpus_path)
+    _write_review(review_path, [{"id": "q1", "validation_decision": "VALIDATED"}])
+
+    with pytest.raises(SystemExit, match="--output must not overwrite the expert review CSV"):
+        apply_review(eval_path, review_path, review_path, strict=True)
+    with pytest.raises(SystemExit, match="--output must not overwrite the corpus catalog"):
+        apply_review(
+            eval_path,
+            review_path,
+            corpus_path,
+            strict=True,
+            corpus_files_path=corpus_path,
+        )
+
+
 def test_apply_review_strict_requires_all_eval_ids(tmp_path):
     eval_path = tmp_path / "eval.json"
     review_path = tmp_path / "review.csv"
