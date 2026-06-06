@@ -124,6 +124,20 @@ class Settings(BaseSettings):
         default=None,
         description="Reranker LLM modeli; None ise GENERATION_MODEL kullanılır.",
     )
+    ENABLE_AUTO_METADATA_FILTER: bool = Field(
+        default=False,
+        description=(
+            "Açıkken sorgudaki kesin CECRL seviye/beceri ipuçlarından Chroma/BM25 "
+            "metadata filtresi üretir. Muhafazakar tutulur; belirsiz sorguda filtre yoktur."
+        ),
+    )
+    ENABLE_SOURCE_DIVERSIFICATION: bool = Field(
+        default=False,
+        description=(
+            "Açıkken rerank/fusion sonrası ilk top_k içinde aynı kaynak dosyadan gelen "
+            "tekrarları mümkün olduğunca sonraya iter; source-recall odaklı deneyler içindir."
+        ),
+    )
 
     DEDUP_SIMILARITY_THRESHOLD: float = Field(
         default=0.95,

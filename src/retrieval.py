@@ -82,15 +82,67 @@ def _embed_query(query: str) -> list[float]:
     return embed_query(query)
 
 
+def _source_key(chunk: dict) -> str:
+    """Source-level identity used for optional source diversification."""
+    return str(
+        chunk.get("filename")
+        or chunk.get("source_file")
+        or chunk.get("source")
+        or chunk.get("parent_id")
+        or ""
+    )
+
+
+def _diversify_by_source(chunks: list[dict], top_k: int) -> list[dict]:
+    """
+    Prefer distinct source files in the first top_k slots, preserving ranked order
+    within the distinct and duplicate groups.
+    """
+    selected: list[dict] = []
+    overflow: list[dict] = []
+    seen: set[str] = set()
+    for chunk in chunks:
+        key = _source_key(chunk)
+        if key and key not in seen:
+            selected.append(chunk)
+            seen.add(key)
+        else:
+            overflow.append(chunk)
+    return (selected + overflow)[:top_k]
+
+
+def _auto_metadata_filter(query: str) -> dict | None:
+    """
+    Build the only auto-filter currently validated to improve provisional M3.
+
+    The 2026-06-06 sweep showed broad level/PE filters regress general-reference
+    questions. PO level+skill filters recover oral-production grille/descripteur
+    misses without that broad-doc penalty.
+    """
+    from src.metadata_filter import build_where_clause, detect_filters
+
+    detected = detect_filters(query)
+    if detected.get("skill") != "PO":
+        return None
+    return build_where_clause(**detected)
+
+
 def _apply_reranking(query: str, chunks: list[dict], top_k: int) -> list[dict]:
     """
     Reranking açıksa adayları LLM yargıç ile yeniden sıralar; aksi halde
     chunks[:top_k] döner. Geç import — reranker yalnızca bayrak açıkken yüklenir.
     """
-    if not settings.ENABLE_RERANKING:
-        return chunks[:top_k]
-    from src.reranker import rerank
-    return rerank(query, chunks, top_n=top_k)
+    ranked = chunks
+    if settings.ENABLE_RERANKING:
+        from src.reranker import rerank
+
+        # Source diversification needs the full scored candidate order; otherwise
+        # duplicates may already have crowded out useful later sources.
+        rerank_top_n = len(chunks) if settings.ENABLE_SOURCE_DIVERSIFICATION else top_k
+        ranked = rerank(query, chunks, top_n=rerank_top_n)
+    if settings.ENABLE_SOURCE_DIVERSIFICATION:
+        return _diversify_by_source(ranked, top_k)
+    return ranked[:top_k]
 
 
 # ---------------------------------------------------------------------------
@@ -126,6 +178,11 @@ def retrieve_context(
     if search_mode is None:
         search_mode = "hybrid" if settings.ENABLE_HYBRID_SEARCH else "dense"
 
+    auto_filter_applied = False
+    if metadata_filter is None and settings.ENABLE_AUTO_METADATA_FILTER:
+        metadata_filter = _auto_metadata_filter(query)
+        auto_filter_applied = bool(metadata_filter)
+
     # Veri-temelli karar (BM25 değerlendirmesi): cross-lingual sorgularda
     # (sorgu dili != korpus dili) BM25+çeviri yolu recall/MRR'a katkı sağlamıyor
     # ama çeviri LLM çağrısı ~0.6-1.1 sn gecikme ekliyor. Bu nedenle ENABLE_CROSS_LINGUAL_BM25
@@ -160,9 +217,20 @@ def retrieve_context(
         )
 
     if search_mode == "dense":
-        dense_hits = _retrieve_dense(
-            query, fetch_k, source_filter, distance_threshold, parents, metadata_filter
-        )
+        try:
+            dense_hits = _retrieve_dense(
+                query, fetch_k, source_filter, distance_threshold, parents, metadata_filter
+            )
+        except ValueError:
+            if not auto_filter_applied:
+                raise
+            dense_hits = _retrieve_dense(
+                query, fetch_k, source_filter, distance_threshold, parents, None
+            )
+        if not dense_hits and auto_filter_applied:
+            dense_hits = _retrieve_dense(
+                query, fetch_k, source_filter, distance_threshold, parents, None
+            )
         return _apply_reranking(query, dense_hits, top_k)
 
     # Phase 3.5: cross-lingual sorgu genişletme — yalnızca BM25 yolunu etkiler.
@@ -196,16 +264,30 @@ def retrieve_context(
 
     search_started = time.perf_counter()
     try:
-        children = hybrid_search_children(
-            query,
-            top_k=fetch_k,
-            source_filter=source_filter,
-            search_mode=search_mode,
-            alpha=alpha,
-            bm25_query=bm25_query,
-            bm25_query_future=bm25_query_future,
-            metadata_filter=metadata_filter,
-        )
+        try:
+            children = hybrid_search_children(
+                query,
+                top_k=fetch_k,
+                source_filter=source_filter,
+                search_mode=search_mode,
+                alpha=alpha,
+                bm25_query=bm25_query,
+                bm25_query_future=bm25_query_future,
+                metadata_filter=metadata_filter,
+            )
+        except ValueError:
+            if not auto_filter_applied:
+                raise
+            children = hybrid_search_children(
+                query,
+                top_k=fetch_k,
+                source_filter=source_filter,
+                search_mode=search_mode,
+                alpha=alpha,
+                bm25_query=bm25_query,
+                bm25_query_future=bm25_query_future,
+                metadata_filter=None,
+            )
     finally:
         if translation_executor is not None:
             # Çeviri future'ı hybrid_search_children içinde tüketildi; örtüşen
@@ -226,6 +308,17 @@ def retrieve_context(
                     pass
             translation_executor.shutdown(wait=False)
     child_search_ms = (time.perf_counter() - search_started) * 1000
+    if not children and auto_filter_applied:
+        children = hybrid_search_children(
+            query,
+            top_k=fetch_k,
+            source_filter=source_filter,
+            search_mode=search_mode,
+            alpha=alpha,
+            bm25_query=bm25_query,
+            bm25_query_future=bm25_query_future,
+            metadata_filter=None,
+        )
     if not children:
         raise ValueError("Sorgu için hiçbir sonuç döndürülmedi.")
 
@@ -292,6 +385,16 @@ def retrieve_context(
             "parent_format_ms": round(format_ms, 1),
         },
     )
+    if not formatted and auto_filter_applied:
+        return retrieve_context(
+            query,
+            top_k=top_k,
+            source_filter=source_filter,
+            distance_threshold=distance_threshold,
+            search_mode=search_mode,
+            alpha=alpha,
+            metadata_filter={},
+        )
     return _apply_reranking(query, formatted, top_k)
 
 

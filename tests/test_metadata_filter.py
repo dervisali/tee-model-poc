@@ -56,6 +56,21 @@ class TestDetectFilters:
         # "po" küçük harf — Fransızca sözcüklerle karışmasın diye eşleşmez.
         assert "skill" not in detect_filters("la production po orale")
 
+    def test_fransizca_beceri_ifadesi_eslesir(self):
+        assert detect_filters("épreuve de production orale B2") == {
+            "level": "B2",
+            "skill": "PO",
+        }
+
+    def test_turkce_beceri_ifadesi_eslesir(self):
+        assert detect_filters("B1 sözlü üretim görevi") == {
+            "level": "B1",
+            "skill": "PO",
+        }
+
+    def test_birden_cok_beceri_belirsizse_atlanir(self):
+        assert detect_filters("production orale et production écrite B2") == {"level": "B2"}
+
     def test_hicbir_token_yoksa_bos(self):
         assert detect_filters("grille nedir") == {}
 

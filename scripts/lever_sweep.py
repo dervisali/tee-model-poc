@@ -5,6 +5,7 @@ Runs the deterministic recall@k report (src.evaluator.run_recall_report) under
 retrieval-TIME configs that require NO re-ingestion:
   - baseline                (committed defaults)
   - rerank_on               (ENABLE_RERANKING=true; over-fetch RERANK_FETCH_K → top_k)
+  - rerank_auto_metadata    (rerank + guarded PO-only auto metadata filtering)
   - cross_lingual_bm25_on   (TR→FR translation + hybrid BM25)
   - alpha_0.5               (more BM25 weight in fusion)
 
@@ -96,9 +97,21 @@ def main() -> int:
     def _noop():
         return lambda: None
 
+    def _chain(*setups):
+        restores = [setup() for setup in setups]
+        return lambda: [restore() for restore in reversed(restores)]
+
     configs = [
         ("baseline", _noop, None),
         ("rerank_on", lambda: _set("ENABLE_RERANKING", True), None),
+        (
+            "rerank_auto_metadata",
+            lambda: _chain(
+                lambda: _set("ENABLE_RERANKING", True),
+                lambda: _set("ENABLE_AUTO_METADATA_FILTER", True),
+            ),
+            None,
+        ),
         ("cross_lingual_bm25_on", lambda: _set("ENABLE_CROSS_LINGUAL_BM25", True), None),
         ("alpha_0.5", _noop, lambda q, top_k: retrieve_context(q, top_k=top_k, alpha=0.5)),
     ]

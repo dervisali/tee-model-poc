@@ -103,6 +103,47 @@ class TestSearchModeDispatch:
         assert callable(retrieve_context)
 
 
+class TestSourceDiversification:
+    def test_source_diversification_prefers_distinct_filenames(self):
+        from src.retrieval import _diversify_by_source
+
+        chunks = [
+            {"filename": "a.pdf", "score": 0.9},
+            {"filename": "a.pdf", "score": 0.8},
+            {"filename": "b.pdf", "score": 0.7},
+            {"filename": "c.pdf", "score": 0.6},
+        ]
+
+        diversified = _diversify_by_source(chunks, top_k=3)
+        assert [c["filename"] for c in diversified] == ["a.pdf", "b.pdf", "c.pdf"]
+
+    def test_apply_reranking_diversifies_without_reranker(self, monkeypatch):
+        import src.retrieval as retrieval
+
+        monkeypatch.setattr(retrieval.settings, "ENABLE_RERANKING", False)
+        monkeypatch.setattr(retrieval.settings, "ENABLE_SOURCE_DIVERSIFICATION", True)
+
+        chunks = [
+            {"filename": "a.pdf"},
+            {"filename": "a.pdf"},
+            {"filename": "b.pdf"},
+        ]
+
+        ranked = retrieval._apply_reranking("query", chunks, top_k=2)
+        assert [c["filename"] for c in ranked] == ["a.pdf", "b.pdf"]
+
+
+class TestAutoMetadataFilter:
+    def test_auto_metadata_filter_only_applies_validated_po_rule(self):
+        from src.retrieval import _auto_metadata_filter
+
+        assert _auto_metadata_filter("B2 production orale süresi") == {
+            "$and": [{"level": {"$eq": "B2"}}, {"skill": {"$eq": "PO"}}]
+        }
+        assert _auto_metadata_filter("B2 production écrite kelime sayısı") is None
+        assert _auto_metadata_filter("A1 seviyesinde kullanıcı neler yapabilir") is None
+
+
 class TestBM25MetadataFilter:
     """BM25Index.search'in metadata_filter'ı Python tarafında uyguladığını test eder."""
 

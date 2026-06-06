@@ -21,6 +21,7 @@ BM25 yolu aynı sözlüğü Python tarafında düz eşitlikle uygular.
 from __future__ import annotations
 
 import re
+import unicodedata
 from typing import get_args
 
 from src.chunk_metadata import DocType, Level, Skill
@@ -37,6 +38,45 @@ _LEVEL_RE = re.compile(r"\b([ABC][12])\b", re.IGNORECASE)
 # Beceri kodları: PE/PO/CE/CO. Kelime sınırı + büyük harf zorunlu (Fransızca
 # "po"/"ce" gibi sözcüklerle karışmasın diye yalnızca büyük harf eşleşir).
 _SKILL_RE = re.compile(r"\b(PE|PO|CE|CO)\b")
+
+_SKILL_PHRASES: dict[str, tuple[str, ...]] = {
+    "PO": (
+        "production orale",
+        "epreuve orale",
+        "epreuve de production orale",
+        "oral production",
+        "sozlu uretim",
+        "sozlu anlatim",
+        "sozlu sinav",
+    ),
+    "PE": (
+        "production ecrite",
+        "epreuve ecrite",
+        "epreuve de production ecrite",
+        "written production",
+        "yazili uretim",
+        "yazili anlatim",
+    ),
+    "CO": (
+        "comprehension orale",
+        "oral comprehension",
+        "dinleme",
+        "sozlu anlama",
+    ),
+    "CE": (
+        "comprehension ecrite",
+        "written comprehension",
+        "okuma",
+        "yazili anlama",
+    ),
+}
+
+
+def _ascii_lower(text: str) -> str:
+    """Aksanları sadeleştirip Türkçe noktasız/noktalı i farkını yumuşatır."""
+    normalized = unicodedata.normalize("NFKD", text)
+    stripped = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+    return stripped.casefold().replace("ı", "i")
 
 
 def build_where_clause(
@@ -85,6 +125,10 @@ def detect_filters(query: str) -> dict:
         out["level"] = next(iter(levels))
 
     skills = set(_SKILL_RE.findall(query))
+    normalized_query = _ascii_lower(query)
+    for skill, phrases in _SKILL_PHRASES.items():
+        if any(phrase in normalized_query for phrase in phrases):
+            skills.add(skill)
     if len(skills) == 1:
         out["skill"] = next(iter(skills))
 

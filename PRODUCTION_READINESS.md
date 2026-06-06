@@ -123,7 +123,7 @@ Milestones: **M3** = top-3 source recall ≥ 90% · **M4** = citation accuracy �
 - Failure buckets (recall@5 < 0.90), from the baseline JSON:
 
 | Bucket | n | recall@5 | recall@10 | Note |
-|---|---|---|---|---|
+|---|---|---|---|---|---|
 | level=B2 | 4 | 0.250 | 0.500 | small n; B2 grille/descripteur weak |
 | level=A2 | 2 | 0.500 | 1.000 | small n; ordering problem |
 | doc_type=grille | 10 | 0.500 | 0.850 | tabular grids — gold often at rank 6–10 |
@@ -143,34 +143,37 @@ miss needing better ingestion.
 
 Detail: `evaluation/results/lever_summary_20260530.md`.
 
-| Lever | recall@5 | vs baseline | Notable | Keep? |
+| Lever | M3 recall@3 | recall@5 | vs baseline M3 | Notable | Keep? |
 |---|---|---|---|---|
-| baseline (alpha 0.7, rerank off, xling off) | 0.79 | — | M3 fails | — |
-| **reranker on** (fetch_k 20) | **0.83** | **+4** | grille 0.50→0.85, tr 0.792→0.896; but noisy (fr 0.788→0.769) | ✅ best lever (still < 90%) |
-| cross-lingual BM25 on | 0.77 | −2 | tr 0.792→0.750; lifts recall@10 only | ❌ no gain (keep off) |
-| `ENABLE_CONTEXTUAL_ENRICHMENT` (re-ingest) | — | — | targets grille/descripteur/B2 | ⏳ deferred — destructive, awaiting auth |
-| Ingestion fix: grille/PPTX/OCR (re-ingest) | — | — | targets grille 0.50, descripteur 0.556 | ⏳ deferred — re-ingest |
-| `HYBRID_ALPHA` tuning, cross-encoder, query rewrite/HyDE | — | — | not pursued yet | ⏳ deferred |
+| baseline (alpha 0.7, rerank off, xling off) | 0.70 | — | — | M3 fails | — |
+| reranker on (fetch_k 20) | 0.78 | 0.83 | +0.08 | grille improves, still below M3 | ✅ useful, insufficient |
+| **reranker + guarded PO auto metadata filter** | **0.84** | **0.88** | **+0.14** | grille@3 0.95, TR@3 0.917; descripteur remains weak at 0.444 | ✅ current best non-destructive lever |
+| cross-lingual BM25 on | — | 0.77 | no gain | tr recall regresses; lifts recall@10 only | ❌ keep off |
+| source diversification | 0.76 | — | −0.02 vs rerank | duplicate-source crowding fix looked plausible but regressed live eval | ❌ keep off |
+| `ENABLE_CONTEXTUAL_ENRICHMENT` (re-ingest) | — | — | — | targets descripteur/general definition misses | ⏳ deferred — destructive/long-running |
+| Ingestion fix: grille/PPTX/OCR (re-ingest) | — | — | — | OCR preflight clean; full enriched DB not rebuilt yet | ⏳ deferred — re-ingest |
+| `HYBRID_ALPHA` tuning, cross-encoder, query rewrite/HyDE | — | — | — | not pursued yet | ⏳ deferred |
 
 **CLAUDE.md note confirmed:** the original "cross-lingual BM25 gives no recall gain on TR" is
 **correct** on the fixed eval (0.79→0.77). (An interim edit claiming the opposite was based on
 unmeasured numbers and has been reverted.)
 
 **Recommended retrieval config for the NEXT round (not a pass):** `ENABLE_RERANKING=true`,
-`ENABLE_CROSS_LINGUAL_BM25=false`, `HYBRID_ALPHA=0.7`. Even with the reranker, archived recall@5 was
-83% < 90%, so this is a starting point for the destructive-lever round, not a certification.
+`ENABLE_AUTO_METADATA_FILTER=true`, `ENABLE_CROSS_LINGUAL_BM25=false`, `ENABLE_SOURCE_DIVERSIFICATION=false`,
+`HYBRID_ALPHA=0.7`. Current best provisional M3 is 84% < 90%, so this is a starting point for the
+destructive/enriched-ingestion round, not a certification.
 
 ### 2d. Final scores vs milestones
 
 | Metric | Target | Achieved (live) | Met? |
 |---|---|---|---|
 | Top-3 source recall (M3) — baseline | ≥ 90% | 0.70 | ❌ no |
-| Top-3 source recall (M3) — reranker on | ≥ 90% | not certified at k=3 | ❌ no |
+| Top-3 source recall (M3) — reranker + guarded PO auto metadata | ≥ 90% | 0.84 provisional | ❌ no |
 | Citation accuracy (M4) | ≥ 95% | not measured | ❌ pending |
 | RAGAS faithfulness / context_precision | _(set)_ | not measured | pending |
 
 > **If M3/M4 are not met, unsupervised go-live is BLOCKED.** **M3 is NOT met** (0.70 baseline top-3;
-> archived best recall@5 non-destructive lever was 0.83, still < 0.90) and **M4 is unmeasured**. Unsupervised go-live is
+> current best provisional non-destructive top-3 is 0.84, still < 0.90) and **M4 is unmeasured**. Unsupervised go-live is
 > **BLOCKED**. Next steps to attempt the gate: (1) DELF-expert validation of the eval set; (2) the
 > destructive re-ingest levers (contextual enrichment; grille/PPTX/OCR extraction quality) targeting
 > the grille/descripteur/B2 buckets; (3) commit the reranker; (4) measure M4. All require explicit
