@@ -1,4 +1,5 @@
 import json
+from types import SimpleNamespace
 
 from scripts.run_enriched_retrieval_experiment import (
     BASELINE_CHROMA_DIR,
@@ -6,6 +7,7 @@ from scripts.run_enriched_retrieval_experiment import (
     _baseline_integrity,
     _directory_fingerprint,
     _experiment_db_readiness,
+    _preflight,
     _prepare_reingest_target,
     _refuse_unsafe_target,
     _write_experiment_summary,
@@ -41,6 +43,43 @@ def test_write_experiment_summary_uses_custom_results_dir(tmp_path):
     assert path.parent == tmp_path
     assert path.name.startswith("enriched_experiment_")
     assert data["ok"] is True
+
+
+def test_preflight_can_skip_experiment_db_readiness_before_destructive_rebuild(tmp_path, monkeypatch):
+    import scripts.run_enriched_retrieval_experiment as experiment
+    import src.document_loaders as loaders
+
+    eval_path = tmp_path / "eval.json"
+    eval_path.write_text(
+        json.dumps({"questions": [{"id": "q1", "validation_status": "DRAFT"}]}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        loaders,
+        "iter_documents",
+        lambda _root: [
+            SimpleNamespace(
+                path=tmp_path / "doc.txt",
+                error=None,
+                pages=[SimpleNamespace(text="contenu")],
+            )
+        ],
+    )
+
+    def fail_if_called(_chroma_dir):
+        raise AssertionError("readiness should not open Chroma before destructive rebuild")
+
+    monkeypatch.setattr(experiment, "_experiment_db_readiness", fail_if_called)
+
+    result = _preflight(
+        tmp_path / "chroma_db_enriched",
+        tmp_path,
+        eval_path,
+        check_experiment_db=False,
+    )
+
+    assert result["documents_nonempty"] == 1
+    assert result["experiment_db_readiness"]["ok"] is None
 
 
 def test_directory_fingerprint_detects_changes(tmp_path):
@@ -87,8 +126,26 @@ def test_prepare_reingest_target_clears_existing_experiment_directory(tmp_path):
     result = _prepare_reingest_target(chroma_dir, force=True)
 
     assert result["cleared_existing_directory"] is True
+    assert result["preserved_enrichment_cache"] is False
     assert result["chroma_dir"] == str(chroma_dir.resolve())
     assert not chroma_dir.exists()
+    assert not stale.exists()
+
+
+def test_prepare_reingest_target_preserves_enrichment_cache_only(tmp_path):
+    chroma_dir = tmp_path / "chroma_db_enriched"
+    chroma_dir.mkdir()
+    cache = chroma_dir / "enrichment_cache.json"
+    cache.write_text('{"chunk": "enriched"}', encoding="utf-8")
+    stale = chroma_dir / "chroma.sqlite3"
+    stale.write_text("stale db", encoding="utf-8")
+
+    result = _prepare_reingest_target(chroma_dir, force=True)
+
+    assert result["cleared_existing_directory"] is True
+    assert result["preserved_enrichment_cache"] is True
+    assert result["preserved_enrichment_cache_bytes"] == len('{"chunk": "enriched"}')
+    assert cache.read_text(encoding="utf-8") == '{"chunk": "enriched"}'
     assert not stale.exists()
 
 

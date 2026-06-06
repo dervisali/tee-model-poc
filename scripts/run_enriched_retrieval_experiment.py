@@ -77,19 +77,35 @@ def _refuse_unsafe_target(chroma_dir: Path, *, force: bool) -> None:
 
 
 def _prepare_reingest_target(chroma_dir: Path, *, force: bool) -> dict:
-    """Prepare the experiment DB directory for a zero-state rebuild."""
+    """Prepare the experiment DB directory for a zero-state rebuild.
+
+    `enrichment_cache.json` is preserved across forced rebuilds because it is
+    keyed by source document/chunk text, not by ChromaDB state. Keeping it avoids
+    repeating thousands of LLM enrichment calls while still clearing every DB
+    artifact that can affect retrieval results.
+    """
     _refuse_unsafe_target(chroma_dir, force=force)
     resolved = chroma_dir.resolve()
     cleared = False
+    cache_name = "enrichment_cache.json"
+    preserved_cache: bytes | None = None
     if resolved.exists():
         if not resolved.is_dir():
             raise SystemExit(f"Experiment CHROMA_DIR is not a directory: {resolved}")
+        cache_path = resolved / cache_name
+        if cache_path.exists() and cache_path.is_file():
+            preserved_cache = cache_path.read_bytes()
         shutil.rmtree(resolved)
         cleared = True
+        if preserved_cache is not None:
+            resolved.mkdir(parents=True, exist_ok=True)
+            (resolved / cache_name).write_bytes(preserved_cache)
 
     return {
         "chroma_dir": str(resolved),
         "cleared_existing_directory": cleared,
+        "preserved_enrichment_cache": preserved_cache is not None,
+        "preserved_enrichment_cache_bytes": len(preserved_cache or b""),
     }
 
 
@@ -189,7 +205,13 @@ def _load_questions(path: Path) -> list[dict]:
     return data.get("questions", data) if isinstance(data, dict) else data
 
 
-def _preflight(chroma_dir: Path, data_dir: Path, eval_path: Path) -> dict:
+def _preflight(
+    chroma_dir: Path,
+    data_dir: Path,
+    eval_path: Path,
+    *,
+    check_experiment_db: bool = True,
+) -> dict:
     from src.document_loaders import iter_documents
 
     docs = list(iter_documents(data_dir))
@@ -210,7 +232,16 @@ def _preflight(chroma_dir: Path, data_dir: Path, eval_path: Path) -> dict:
         "documents_total": len(docs),
         "documents_nonempty": len(nonempty),
         "document_failures": failures,
-        "experiment_db_readiness": _experiment_db_readiness(chroma_dir),
+        "experiment_db_readiness": (
+            _experiment_db_readiness(chroma_dir)
+            if check_experiment_db
+            else {
+                "ok": None,
+                "failures": ["skipped before destructive rebuild"],
+                "parent_count": None,
+                "child_count": None,
+            }
+        ),
         "eval_questions": len(questions),
         "eval_unvalidated": len(unvalidated),
         "eval_unvalidated_ids": unvalidated[:10],
@@ -297,7 +328,12 @@ def main() -> int:
     if str(REPO) not in sys.path:
         sys.path.insert(0, str(REPO))
 
-    preflight = _preflight(chroma_dir, data_dir, eval_path)
+    preflight = _preflight(
+        chroma_dir,
+        data_dir,
+        eval_path,
+        check_experiment_db=not args.run_ingest,
+    )
     if args.preflight:
         print(json.dumps(preflight, ensure_ascii=False, indent=2))
         return 0 if not preflight["document_failures"] else 2
