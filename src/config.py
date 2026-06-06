@@ -192,6 +192,12 @@ class Settings(BaseSettings):
     LLM_RETRY_MIN_WAIT: float = Field(default=2.0, ge=0.1)
     LLM_RETRY_MAX_WAIT: float = Field(default=10.0, ge=1.0)
 
+    # Toplu embedding throttle — tam korpus ingest'i Vertex embedding kotasını
+    # (TPM/RPM) aşabildiğinden batch boyutu ve batch'ler arası bekleme
+    # ayarlanabilir. Bekleme None ise backend'e göre varsayılan kullanılır.
+    EMBED_BATCH_SIZE: int = Field(default=100, ge=1, le=250)
+    EMBED_SLEEP_BETWEEN_BATCHES: float | None = Field(default=None, ge=0.0)
+
     # -------------------------------------------------------------------
     # Özellik bayrakları
     # -------------------------------------------------------------------

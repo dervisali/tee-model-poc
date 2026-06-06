@@ -97,18 +97,23 @@ def embed_passage(text: str) -> list[float]:
     return _embed([text], task_type="RETRIEVAL_DOCUMENT")[0]
 
 
-def embed_passages(texts: list[str], batch_size: int = 100) -> list[list[float]]:
+def embed_passages(texts: list[str], batch_size: int | None = None) -> list[list[float]]:
     """
     Toplu belge gömeleri — ingestion sırasında verim için kullanılır.
 
-    Hem Vertex AI hem de public Gemini API RPM kotalarına tabidir.
-    Vertex AI kotası 100k RPM'e yükseltildiğinden sleep kısaltıldı;
+    Hem Vertex AI hem de public Gemini API kotalarına (RPM/TPM) tabidir.
+    Tam korpus ingest'i ~1M token gömerek varsayılan kotayı aşabildiğinden
+    (429 RESOURCE_EXHAUSTED), batch'ler arası bekleme muhafazakâr tutulur;
     public_genai ücretsiz katmanı daha kısıtlı olduğundan daha uzun bekler.
+    `EMBED_SLEEP_BETWEEN_BATCHES` ile geçersiz kılınabilir.
     """
     import time
 
-    # Vertex AI quota has been increased to 100k RPM, so we can reduce sleep significantly.
-    sleep_between_batches = 4.5 if settings.INFERENCE_BACKEND == "public_genai" else 0.5
+    if batch_size is None:
+        batch_size = settings.EMBED_BATCH_SIZE
+    default_sleep = 4.5 if settings.INFERENCE_BACKEND == "public_genai" else 3.0
+    configured_sleep = settings.EMBED_SLEEP_BETWEEN_BATCHES
+    sleep_between_batches = configured_sleep if configured_sleep is not None else default_sleep
 
     output: list[list[float]] = []
     total_batches = (len(texts) + batch_size - 1) // batch_size

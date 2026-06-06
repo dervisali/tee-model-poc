@@ -67,6 +67,57 @@ def _tesseract_runtime_errors(pytesseract_module) -> tuple[type[BaseException], 
     return tuple(error_types)
 
 
+def _tesseract_image_to_string(image, *, lang: str, source_path: "Path | None" = None) -> str:
+    """Bir PIL imajını OCR'lar; pytesseract'ın stderr decode hatasına dayanıklı.
+
+    pytesseract'ın `get_errors()` fonksiyonu tesseract ikilisinin stderr'ini
+    katı UTF-8 ile çözer ve bazı tesseract sürümlerinin stderr'e yazdığı
+    UTF-8 olmayan baytlarda `UnicodeDecodeError` yükseltir — oysa OCR aslında
+    başarılıdır (stdout metni geçerli UTF-8'dir). Bu durumda ikiliyi doğrudan
+    çağırıp stdout'u okuruz. `source_path` verilirse (imaj dosyaları) ikili
+    orijinal dosya üzerinde çalışır; geçici dosya gerekmez.
+    """
+    import pytesseract
+
+    try:
+        return pytesseract.image_to_string(image, lang=lang)
+    except UnicodeDecodeError:
+        return _tesseract_via_subprocess(image, lang=lang, source_path=source_path)
+
+
+def _tesseract_via_subprocess(image, *, lang: str, source_path: "Path | None" = None) -> str:
+    """tesseract ikilisini doğrudan çalıştırır; stdout'u hoşgörüyle çözer, stderr'i yok sayar."""
+    import os
+    import shutil
+    import subprocess
+    import tempfile
+
+    binary = shutil.which("tesseract") or "tesseract"
+    tmp_path: str | None = None
+    if source_path is not None:
+        target = str(source_path)
+    else:
+        fd, tmp_path = tempfile.mkstemp(suffix=".png")
+        os.close(fd)
+        image.save(tmp_path, format="PNG")
+        target = tmp_path
+    try:
+        proc = subprocess.run(
+            [binary, target, "stdout", "-l", lang],
+            capture_output=True,
+        )
+        # tesseract sıfır-olmayan çıkış kodunda bile çoğu zaman stdout'a
+        # kullanılabilir metin yazar. stdout'u hoşgörüyle çöz; stderr'i asla
+        # katı çözme.
+        return proc.stdout.decode("utf-8", errors="replace")
+    finally:
+        if tmp_path is not None:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+
 # ---------------------------------------------------------------------------
 # Format-bazlı loader'lar
 # ---------------------------------------------------------------------------
@@ -108,8 +159,10 @@ def _ocr_pdf_page(page, *, lang: str = "fra") -> str:
         raise LoaderError("pytesseract yüklü değil") from exc
 
     try:
-        img = page.to_image(resolution=200).original  # PIL Image (pypdfium2 backend)
-        return pytesseract.image_to_string(img, lang=lang)
+        # 300 DPI = tesseract'ın önerdiği asgari; 200 DPI küçük/renkli tablo
+        # metnini (ör. niveaux_mots_cles.pdf slaytları) okuyamıyordu.
+        img = page.to_image(resolution=300).original  # PIL Image (pypdfium2 backend)
+        return _tesseract_image_to_string(img, lang=lang)
     except _tesseract_runtime_errors(pytesseract) as exc:
         raise LoaderError(f"OCR başarısız: {type(exc).__name__}: {exc}") from exc
     except Exception as exc:  # noqa: BLE001 — render/OCR backendleri farklı hatalar yükseltebilir
@@ -186,7 +239,7 @@ def load_image_ocr(path: Path, *, lang: str = "fra") -> list[PageContent]:
 
     try:
         with Image.open(str(path)) as img:
-            text = pytesseract.image_to_string(img, lang=lang)
+            text = _tesseract_image_to_string(img, lang=lang, source_path=path)
     except _tesseract_runtime_errors(pytesseract) as exc:
         raise LoaderError(f"OCR başarısız: {type(exc).__name__}: {exc}") from exc
 

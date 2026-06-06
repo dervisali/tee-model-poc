@@ -24,7 +24,18 @@ from scripts.lint_expert_review import lint_review
 
 REPO = Path(__file__).resolve().parent.parent
 DEFAULT_EVAL = REPO / "evaluation" / "delf_questions.json"
+DEFAULT_VALIDATED_EVAL = REPO / "evaluation" / "delf_questions.validated.json"
 DEFAULT_REVIEW = REPO / "evaluation" / "delf_questions_expert_review.csv"
+
+
+def default_eval_path() -> Path:
+    """Certify the expert-validated eval when it exists, else the raw eval.
+
+    The certification target is the validated set produced by
+    ``scripts.apply_expert_validation --strict``. Until that file exists the
+    gate falls back to the raw eval, which correctly fails (no manifest).
+    """
+    return DEFAULT_VALIDATED_EVAL if DEFAULT_VALIDATED_EVAL.exists() else DEFAULT_EVAL
 DEFAULT_RESULTS = REPO / "evaluation" / "results"
 DEFAULT_CORPUS_FILES = REPO / "evaluation" / "corpus_files.json"
 
@@ -1180,15 +1191,17 @@ def certification_status(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Inspect retrieval certification status.")
-    parser.add_argument("--eval-path", type=Path, default=DEFAULT_EVAL)
+    parser.add_argument("--eval-path", type=Path, default=None)
     parser.add_argument("--review", type=Path, default=DEFAULT_REVIEW)
     parser.add_argument("--results-dir", type=Path, default=DEFAULT_RESULTS)
     parser.add_argument("--corpus-files", type=Path, default=DEFAULT_CORPUS_FILES)
     parser.add_argument("--repo", type=Path, default=REPO)
     args = parser.parse_args()
 
+    eval_path = args.eval_path.expanduser() if args.eval_path is not None else default_eval_path()
+
     status = certification_status(
-        args.eval_path.expanduser(),
+        eval_path,
         args.results_dir.expanduser(),
         args.corpus_files.expanduser(),
         args.review.expanduser(),

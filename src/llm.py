@@ -97,6 +97,19 @@ def _is_retryable_exception(exc: BaseException) -> bool:
     """Yalnızca geçici Vertex AI / ağ hatalarında yeniden dene."""
     if isinstance(exc, (ConnectionError, TimeoutError)):
         return True
+    # Yeni google-genai SDK'sı (embedding + generation) 429 ve 5xx için
+    # ClientError/ServerError (APIError) yükseltir; bunlar google.api_core
+    # istisnaları DEĞİLDİR, dolayısıyla aşağıdaki blok bunları kaçırırdı ve
+    # toplu ingest'te 429 anında başarısız oluyordu.
+    try:
+        from google.genai import errors as genai_errors
+
+        if isinstance(exc, genai_errors.APIError):
+            code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+            if code in (408, 429, 500, 502, 503, 504):
+                return True
+    except ImportError:  # pragma: no cover
+        pass
     try:
         from google.api_core import exceptions as google_exceptions
     except ImportError:  # pragma: no cover

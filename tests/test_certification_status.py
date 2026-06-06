@@ -6,6 +6,7 @@ import json
 import csv
 from pathlib import Path
 
+import scripts.certification_status as cert_status_mod
 from scripts.apply_expert_validation import default_manifest_path
 from scripts.certification_status import (
     REQUIRED_DOCKERIGNORE_PATTERNS,
@@ -13,6 +14,7 @@ from scripts.certification_status import (
     citation_status,
     certification_status,
     container_image_status,
+    default_eval_path,
     enriched_status,
     eval_status,
 )
@@ -374,6 +376,20 @@ def test_certification_status_fails_when_eval_unvalidated(tmp_path):
     assert out["next_actions"][0]["owner"] == "DELF/DALF expert"
     assert out["next_actions"][0]["current_gap"]["unvalidated_answerable"] == 1
     assert "scripts.lint_expert_review" in out["next_actions"][0]["commands"][0]
+
+
+def test_default_eval_path_prefers_validated_eval_when_present(tmp_path, monkeypatch):
+    raw_eval = tmp_path / "delf_questions.json"
+    validated_eval = tmp_path / "delf_questions.validated.json"
+    raw_eval.write_text("[]", encoding="utf-8")
+    monkeypatch.setattr(cert_status_mod, "DEFAULT_EVAL", raw_eval)
+    monkeypatch.setattr(cert_status_mod, "DEFAULT_VALIDATED_EVAL", validated_eval)
+
+    assert default_eval_path() == raw_eval
+
+    validated_eval.write_text("[]", encoding="utf-8")
+
+    assert default_eval_path() == validated_eval
 
 
 def test_eval_status_surfaces_non_expert_review_preflight(tmp_path):

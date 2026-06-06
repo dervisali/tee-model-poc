@@ -40,7 +40,10 @@ def test_load_pdf_continues_when_tesseract_error_decode_fails(monkeypatch, tmp_p
     assert pages == [loaders.PageContent(text="", page=1, total_pages=1)]
 
 
-def test_load_image_ocr_wraps_tesseract_unicode_error(monkeypatch, tmp_path):
+def test_load_image_ocr_falls_back_when_pytesseract_stderr_decode_fails(monkeypatch, tmp_path):
+    """pytesseract'ın get_errors() katı UTF-8 stderr decode'u çökerse OCR
+    bozulmamalı: ikili doğrudan çağrılır ve sonucu döner (regresyon: önceden
+    UnicodeDecodeError tüm sayfayı boş bırakıyordu)."""
     class FakeImage:
         def __enter__(self):
             return object()
@@ -59,6 +62,28 @@ def test_load_image_ocr_wraps_tesseract_unicode_error(monkeypatch, tmp_path):
     monkeypatch.setitem(__import__("sys").modules, "PIL", fake_pil)
     monkeypatch.setitem(__import__("sys").modules, "PIL.Image", fake_pil.Image)
     monkeypatch.setitem(__import__("sys").modules, "pytesseract", fake_pytesseract)
+    monkeypatch.setattr(loaders, "_tesseract_via_subprocess", lambda *_, **__: "Notre cerveau a-t-il un sexe ?")
 
-    with pytest.raises(loaders.LoaderError, match="OCR başarısız: UnicodeDecodeError"):
-        loaders.load_image_ocr(tmp_path / "scan.jpeg")
+    pages = loaders.load_image_ocr(tmp_path / "scan.jpeg")
+
+    assert pages == [loaders.PageContent(text="Notre cerveau a-t-il un sexe ?", page=None, total_pages=1)]
+
+
+def test_tesseract_via_subprocess_ocrs_source_file_and_decodes_leniently(monkeypatch, tmp_path):
+    """source_path verilince orijinal dosya OCR'lanır (geçici kopya yok) ve
+    stdout, UTF-8 olmayan baytlar olsa bile hoşgörüyle çözülür."""
+    captured = {}
+
+    def fake_run(cmd, capture_output):
+        captured["cmd"] = cmd
+        return types.SimpleNamespace(returncode=0, stdout="Café".encode("utf-8") + b"\xff", stderr=b"\xff noise")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    src = tmp_path / "img.jpeg"
+    src.write_bytes(b"not-a-real-image")
+
+    out = loaders._tesseract_via_subprocess(object(), lang="fra", source_path=src)
+
+    assert "Café" in out                  # valid text preserved, no crash on 0xff
+    assert str(src) in captured["cmd"]     # ran on the original file, not a temp copy
+    assert "-l" in captured["cmd"] and "fra" in captured["cmd"]

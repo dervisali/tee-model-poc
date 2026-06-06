@@ -9,8 +9,9 @@ retrieval-TIME configs that require NO re-ingestion:
   - alpha_0.5               (more BM25 weight in fusion)
 
 Writes ONE artifact incrementally (evaluation/results/lever_sweep_<UTC>.json) so a
-mid-run failure keeps partial results. Read it back with the Read tool — do not rely
-on stdout. Reproduce: `MOCK_MODE=false python -m scripts.lever_sweep`.
+mid-run failure keeps partial results. The summary headlines M3 at the configured
+gate k (currently recall@3) while keeping recall@5 for comparison with older
+Phase 2 notes. Reproduce: `MOCK_MODE=false python -m scripts.lever_sweep`.
 """
 
 from __future__ import annotations
@@ -34,6 +35,8 @@ RESULTS_DIR = settings.BASE_DIR / "evaluation" / "results"
 def _summarize(report: dict) -> dict:
     agg = report["aggregate"]
     o = agg["overall"]
+    md = report["metadata"]
+    m3_k = md["m3_k"]
     byl = agg["buckets"].get("language", {})
     bydt = agg["buckets"].get("doc_type", {})
     bylv = agg["buckets"].get("level", {})
@@ -42,12 +45,23 @@ def _summarize(report: dict) -> dict:
         return round(d.get(key, {}).get(f"recall@{k}", 0.0), 4) if key in d else None
 
     return {
+        "m3_k": m3_k,
+        "m3_recall": round(md["m3_recall_at_k"], 4),
+        "m3_hit": round(md["m3_hit_at_k"], 4),
+        "m3_passed": bool(md["m3_recall_at_k"] is not None and md["m3_recall_at_k"] >= 0.90),
+        "recall@3": round(o["recall@3"], 4),
         "recall@5": round(o["recall@5"], 4),
         "recall@10": round(o["recall@10"], 4),
+        "hit@3": round(o["hit@3"], 4),
         "hit@5": round(o["hit@5"], 4),
+        "tr@3": g(byl, "tr", 3),
+        "fr@3": g(byl, "fr", 3),
         "tr@5": g(byl, "tr", 5),
         "fr@5": g(byl, "fr", 5),
+        "grille@3": g(bydt, "grille", 3),
         "grille@5": g(bydt, "grille", 5),
+        "descripteur@3": g(bydt, "descripteur", 3),
+        "B2@3": g(bylv, "B2", 3),
         "B2@5": g(bylv, "B2", 5),
     }
 
