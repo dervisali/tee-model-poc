@@ -3,6 +3,8 @@ import json
 import pytest
 
 from scripts.render_snapshot_publish_plan import (
+    BASELINE_CHROMA_DIR,
+    REPO,
     SnapshotPublishConfig,
     build_snapshot_publish_plan,
     write_snapshot_publish_plan,
@@ -76,6 +78,26 @@ def test_build_snapshot_publish_plan_rejects_incomplete_chroma_dir(tmp_path):
         build_snapshot_publish_plan(
             SnapshotPublishConfig(
                 chroma_dir=str(chroma_dir),
+                gcs_bucket="delf-corpus-prod",
+            )
+        )
+
+
+def test_build_snapshot_publish_plan_rejects_chroma_dir_inside_baseline():
+    with pytest.raises(SystemExit, match="inside the baseline chroma_db"):
+        build_snapshot_publish_plan(
+            SnapshotPublishConfig(
+                chroma_dir=str(BASELINE_CHROMA_DIR / "nested_snapshot"),
+                gcs_bucket="delf-corpus-prod",
+            )
+        )
+
+
+def test_build_snapshot_publish_plan_rejects_parent_of_repo():
+    with pytest.raises(SystemExit, match="parent of the repository or baseline chroma_db"):
+        build_snapshot_publish_plan(
+            SnapshotPublishConfig(
+                chroma_dir=str(REPO.parent),
                 gcs_bucket="delf-corpus-prod",
             )
         )

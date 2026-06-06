@@ -764,8 +764,18 @@ def snapshot_publication_status(results_dir: Path) -> dict:
         failures.append("snapshot publish GCS_BUCKET env must be a bucket name, not a gs:// URI")
 
     chroma_dir = str(metadata.get("chroma_dir", ""))
-    if Path(chroma_dir).name == "chroma_db":
-        failures.append("snapshot publish chroma_dir must not be baseline chroma_db")
+    if chroma_dir:
+        chroma_path = Path(chroma_dir).expanduser().resolve(strict=False)
+        baseline_path = (REPO / "chroma_db").resolve(strict=False)
+        repo_path = REPO.resolve(strict=False)
+        if chroma_path.name == "chroma_db" or chroma_path == baseline_path:
+            failures.append("snapshot publish chroma_dir must not be baseline chroma_db")
+        if _is_relative_to(chroma_path, baseline_path):
+            failures.append("snapshot publish chroma_dir must not be inside baseline chroma_db")
+        if chroma_path == repo_path:
+            failures.append("snapshot publish chroma_dir must not be repository root")
+        if _is_relative_to(repo_path, chroma_path) or _is_relative_to(baseline_path, chroma_path):
+            failures.append("snapshot publish chroma_dir must not be a parent of the repo or baseline chroma_db")
     if str(env.get("CHROMA_DIR")) != chroma_dir:
         failures.append("snapshot publish CHROMA_DIR env must match metadata chroma_dir")
     if str(env.get("GCS_BUCKET")) != str(metadata.get("gcs_bucket", "")):

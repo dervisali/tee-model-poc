@@ -1120,6 +1120,27 @@ def test_certification_status_rejects_bad_snapshot_publish_plan(tmp_path):
     assert "snapshot publish readiness path must match metadata chroma_dir" in failures
 
 
+def test_certification_status_rejects_nested_baseline_snapshot_publish_plan(tmp_path):
+    eval_path = tmp_path / "eval.json"
+    results = tmp_path / "results"
+    results.mkdir()
+    eval_path.write_text(json.dumps(_validated_eval_items()), encoding="utf-8")
+    plan = _write_controlled_snapshot_plan(results)
+    nested = str(Path.cwd() / "chroma_db" / "nested_snapshot")
+    plan["metadata"]["chroma_dir"] = nested
+    plan["env_vars"]["CHROMA_DIR"] = nested
+    plan["chroma_dir_readiness"]["path"] = nested
+    (results / "corpus_snapshot_publish_plan_20260530T000000Z.json").write_text(
+        json.dumps(plan),
+        encoding="utf-8",
+    )
+
+    out = certification_status(eval_path, results)
+
+    failures = out["gates"]["snapshot_publication"]["failures"]
+    assert "snapshot publish chroma_dir must not be inside baseline chroma_db" in failures
+
+
 def test_certification_status_rejects_snapshot_plan_without_readiness_evidence(tmp_path):
     eval_path = tmp_path / "eval.json"
     results = tmp_path / "results"

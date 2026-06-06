@@ -21,6 +21,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 DEFAULT_RESULTS_DIR = REPO / "evaluation" / "results"
 DEFAULT_CHROMA_DIR = REPO / "chroma_db_enriched"
+BASELINE_CHROMA_DIR = REPO / "chroma_db"
 DEFAULT_SNAPSHOT_PREFIX = "tee-corpus"
 
 
@@ -65,6 +66,27 @@ def _reject_gs_uri_bucket(name: str, value: str) -> None:
         raise SystemExit(f"{name} must be a bucket name, not a gs:// URI")
 
 
+def _is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+    except ValueError:
+        return False
+    return True
+
+
+def _validate_chroma_dir_target(chroma_path: Path) -> None:
+    baseline = BASELINE_CHROMA_DIR.resolve(strict=False)
+    repo = REPO.resolve(strict=False)
+    if chroma_path.name == "chroma_db" or chroma_path == baseline:
+        raise SystemExit("--chroma-dir must not be the baseline chroma_db")
+    if _is_relative_to(chroma_path, baseline):
+        raise SystemExit("--chroma-dir must not be inside the baseline chroma_db")
+    if chroma_path == repo:
+        raise SystemExit("--chroma-dir must not be the repository root")
+    if _is_relative_to(repo, chroma_path) or _is_relative_to(baseline, chroma_path):
+        raise SystemExit("--chroma-dir must not be a parent of the repository or baseline chroma_db")
+
+
 def render_publish_command() -> list[str]:
     return ["python", "-m", "scripts.publish_corpus_snapshot"]
 
@@ -97,9 +119,8 @@ def build_snapshot_publish_plan(config: SnapshotPublishConfig) -> dict:
     _reject_placeholder("--snapshot-prefix", config.snapshot_prefix)
     _reject_gs_uri_bucket("--gcs-bucket", config.gcs_bucket)
     chroma_path = Path(config.chroma_dir).expanduser().resolve(strict=False)
+    _validate_chroma_dir_target(chroma_path)
     chroma_dir = str(chroma_path)
-    if chroma_path.name == "chroma_db":
-        raise SystemExit("--chroma-dir must not be the baseline chroma_db")
     if config.embedding_dimension != 3072:
         raise SystemExit("EMBEDDING_DIMENSION must remain 3072 unless the corpus is fully re-ingested")
     readiness = _chroma_dir_readiness(chroma_path)
