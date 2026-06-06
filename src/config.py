@@ -131,6 +131,13 @@ class Settings(BaseSettings):
             "metadata filtresi üretir. Muhafazakar tutulur; belirsiz sorguda filtre yoktur."
         ),
     )
+    ENABLE_SOURCE_HINTS: bool = Field(
+        default=False,
+        description=(
+            "Açıkken sorgudaki açık DELF/DALF referans ipuçlarından belirli kaynak "
+            "dosyalar için metadata-filtered retrieval yapıp sonuçların başına ekler."
+        ),
+    )
     ENABLE_SOURCE_DIVERSIFICATION: bool = Field(
         default=False,
         description=(

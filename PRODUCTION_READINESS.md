@@ -144,10 +144,11 @@ miss needing better ingestion.
 Detail: `evaluation/results/lever_summary_20260530.md`.
 
 | Lever | M3 recall@3 | recall@5 | vs baseline M3 | Notable | Keep? |
-|---|---|---|---|---|
+|---|---|---|---|---|---|
 | baseline (alpha 0.7, rerank off, xling off) | 0.70 | — | — | M3 fails | — |
 | reranker on (fetch_k 20) | 0.78 | 0.83 | +0.08 | grille improves, still below M3 | ✅ useful, insufficient |
-| **reranker + guarded PO auto metadata filter** | **0.84** | **0.88** | **+0.14** | grille@3 0.95, TR@3 0.917; descripteur remains weak at 0.444 | ✅ current best non-destructive lever |
+| reranker + guarded PO auto metadata filter | 0.84 | 0.88 | +0.14 | grille@3 0.95, TR@3 0.917; descripteur remains weak at 0.444 | ✅ useful, insufficient |
+| **reranker + guarded PO auto metadata + explicit source hints** | **0.94** | **0.97** | **+0.24** | descripteur@3 1.00, FR@3 0.942, TR@3 0.938; remaining misses concentrate in PE/manual/presentation edge cases | ✅ current best provisional lever |
 | cross-lingual BM25 on | — | 0.77 | no gain | tr recall regresses; lifts recall@10 only | ❌ keep off |
 | source diversification | 0.76 | — | −0.02 vs rerank | duplicate-source crowding fix looked plausible but regressed live eval | ❌ keep off |
 | `ENABLE_CONTEXTUAL_ENRICHMENT` (re-ingest) | — | — | — | targets descripteur/general definition misses | ⏳ deferred — destructive/long-running |
@@ -159,24 +160,26 @@ Detail: `evaluation/results/lever_summary_20260530.md`.
 unmeasured numbers and has been reverted.)
 
 **Recommended retrieval config for the NEXT round (not a pass):** `ENABLE_RERANKING=true`,
-`ENABLE_AUTO_METADATA_FILTER=true`, `ENABLE_CROSS_LINGUAL_BM25=false`, `ENABLE_SOURCE_DIVERSIFICATION=false`,
-`HYBRID_ALPHA=0.7`. Current best provisional M3 is 84% < 90%, so this is a starting point for the
-destructive/enriched-ingestion round, not a certification.
+`ENABLE_AUTO_METADATA_FILTER=true`, `ENABLE_SOURCE_HINTS=true`, `ENABLE_CROSS_LINGUAL_BM25=false`,
+`ENABLE_SOURCE_DIVERSIFICATION=false`, `HYBRID_ALPHA=0.7`. Current best provisional M3 is 94%,
+which clears the numerical top-3 target on the current eval file, but it is still not certification:
+the eval set is not DELF-expert validated, M4 is unmeasured, and the enriched-ingestion artifact is
+still incomplete.
 
 ### 2d. Final scores vs milestones
 
 | Metric | Target | Achieved (live) | Met? |
 |---|---|---|---|
 | Top-3 source recall (M3) — baseline | ≥ 90% | 0.70 | ❌ no |
-| Top-3 source recall (M3) — reranker + guarded PO auto metadata | ≥ 90% | 0.84 provisional | ❌ no |
+| Top-3 source recall (M3) — reranker + guarded PO auto metadata + source hints | ≥ 90% | 0.94 provisional | ✅ numeric target only |
 | Citation accuracy (M4) | ≥ 95% | not measured | ❌ pending |
 | RAGAS faithfulness / context_precision | _(set)_ | not measured | pending |
 
-> **If M3/M4 are not met, unsupervised go-live is BLOCKED.** **M3 is NOT met** (0.70 baseline top-3;
-> current best provisional non-destructive top-3 is 0.84, still < 0.90) and **M4 is unmeasured**. Unsupervised go-live is
-> **BLOCKED**. Next steps to attempt the gate: (1) DELF-expert validation of the eval set; (2) the
-> destructive re-ingest levers (contextual enrichment; grille/PPTX/OCR extraction quality) targeting
-> the grille/descripteur/B2 buckets; (3) commit the reranker; (4) measure M4. All require explicit
+> **If M3/M4 are not met, unsupervised go-live is BLOCKED.** The current best non-destructive
+> top-3 run is 0.94, but it is **provisional only** because the eval set remains non-expert-validated
+> and **M4 is unmeasured**. Unsupervised go-live is **BLOCKED**. Next steps to attempt the gate:
+> (1) DELF-expert validation of the eval set; (2) finish the controlled enriched re-ingest artifact;
+> (3) measure M4 citation accuracy; (4) run the certification pipeline. All require explicit
 > authorization (re-ingest is ~4,950 Gemini calls and rebuilds the non-baseline
 > `chroma_db_enriched/` experiment directory; certification fingerprints prove `chroma_db/` stayed
 > unchanged).

@@ -6,6 +6,8 @@ retrieval-TIME configs that require NO re-ingestion:
   - baseline                (committed defaults)
   - rerank_on               (ENABLE_RERANKING=true; over-fetch RERANK_FETCH_K → top_k)
   - rerank_auto_metadata    (rerank + guarded PO-only auto metadata filtering)
+  - rerank_auto_metadata_source_hints
+                            (rerank + guarded metadata + explicit source hints)
   - cross_lingual_bm25_on   (TR→FR translation + hybrid BM25)
   - alpha_0.5               (more BM25 weight in fusion)
 
@@ -109,6 +111,15 @@ def main() -> int:
             lambda: _chain(
                 lambda: _set("ENABLE_RERANKING", True),
                 lambda: _set("ENABLE_AUTO_METADATA_FILTER", True),
+            ),
+            None,
+        ),
+        (
+            "rerank_auto_metadata_source_hints",
+            lambda: _chain(
+                lambda: _set("ENABLE_RERANKING", True),
+                lambda: _set("ENABLE_AUTO_METADATA_FILTER", True),
+                lambda: _set("ENABLE_SOURCE_HINTS", True),
             ),
             None,
         ),

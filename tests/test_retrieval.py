@@ -144,6 +144,40 @@ class TestAutoMetadataFilter:
         assert _auto_metadata_filter("A1 seviyesinde kullanıcı neler yapabilir") is None
 
 
+class TestSourceHints:
+    def test_detect_source_hints_for_named_reference_documents(self):
+        from src.retrieval import _detect_source_hints
+
+        assert _detect_source_hints("Selon l'échelle globale du CECRL, niveau B1") == [
+            "Echelle globale.pdf",
+        ]
+        assert _detect_source_hints(
+            "Dans l'exercice d'évaluation des productions écrites par niveaux"
+        ) == ["Niveaux_CECRL_PE_V2.pdf"]
+        assert _detect_source_hints(
+            "Réalisation de la tâche en production orale du DELF B2"
+        ) == ["B2_Descripteurs_PO.pdf"]
+
+    def test_source_hints_are_not_broad_level_guesses(self):
+        from src.retrieval import _detect_source_hints
+
+        assert _detect_source_hints("A1 seviyesinde kullanıcı neler yapabilir?") == []
+
+    def test_merge_source_hints_deduplicates_parents(self):
+        from src.retrieval import _merge_source_hints
+
+        hinted = [{"parent_id": "p2", "filename": "hint.pdf"}]
+        ranked = [
+            {"parent_id": "p1", "filename": "base.pdf"},
+            {"parent_id": "p2", "filename": "hint.pdf"},
+            {"parent_id": "p3", "filename": "other.pdf"},
+        ]
+
+        merged = _merge_source_hints(hinted, ranked, top_k=3)
+
+        assert [item["parent_id"] for item in merged] == ["p2", "p1", "p3"]
+
+
 class TestBM25MetadataFilter:
     """BM25Index.search'in metadata_filter'ı Python tarafında uyguladığını test eder."""
 
