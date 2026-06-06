@@ -14,7 +14,7 @@ Kullanım:
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -39,6 +39,16 @@ class Settings(BaseSettings):
         default=3072,
         description="gemini-embedding-001 output_dimensionality değeri.",
     )
+
+    @field_validator("EMBEDDING_DIMENSION", mode="before")
+    @classmethod
+    def _coerce_embedding_dimension(cls, v):
+        """Ortam değişkenleri her zaman string'dir; Literal[int] aksi halde
+        env/Cloud Run override'ında 'literal_error' verir. Rakamsal string'i
+        int'e çevir (değeri DEĞİL, yalnızca tipi düzeltir)."""
+        if isinstance(v, str) and v.strip().isdigit():
+            return int(v.strip())
+        return v
     INFERENCE_BACKEND: Literal["vertex", "public_genai"] = Field(
         default="vertex",
         description=(

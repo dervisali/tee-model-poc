@@ -4,7 +4,8 @@ FROM python:3.11-slim
 
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    HF_HOME=/app/.cache/hf
+    HF_HOME=/tmp/hf-cache \
+    XDG_CACHE_HOME=/tmp/.cache
 
 WORKDIR /app
 
@@ -18,9 +19,14 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-RUN chmod +x entrypoint.sh
+RUN groupadd --system app && useradd --system --gid app --home-dir /home/app --create-home app \
+    && mkdir -p /tmp/chroma_db /tmp/hf-cache /tmp/.cache /app/logs \
+    && chown -R app:app /app /home/app /tmp/chroma_db /tmp/hf-cache /tmp/.cache \
+    && chmod +x entrypoint.sh
 
 EXPOSE 8080
+
+USER app
 
 # Phase 1 — entrypoint korpusu hazırlar (GCS senkronizasyonu + doğrulama), sonra Streamlit'i başlatır.
 ENTRYPOINT ["./entrypoint.sh"]

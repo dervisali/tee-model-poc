@@ -1,7 +1,7 @@
 """
-TEE-Model — Streamlit Uygulaması
+DELF/DALF Examiner Assistant — Streamlit uygulaması.
 
-DELF/DALF sınav düzeltici eğitimi için yapay zeka destekli içerik üretimi.
+DELF/DALF sınavcı-düzeltici eğitimi için yapay zeka destekli içerik üretimi.
 Veri yükleme, süreç haritası, hata kartları, terim sözlüğü, simülasyon
 ve uzman onay panelini tek arayüzde sunar.
 """
@@ -50,7 +50,7 @@ def _run_via_queue(label: str, fn, *args, **kwargs):
 # ---------------------------------------------------------------------------
 
 st.set_page_config(
-    page_title="TEE-Model — DELF/DALF Eğitim Sistemi",
+    page_title="DELF/DALF Sınavcı Asistanı",
     page_icon="🏛️",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -398,7 +398,7 @@ with st.sidebar:
     )
     st.session_state["output_language"] = lang_choice
 
-st.title("🏛️ TEE-Model — Tacit-Explicit Entegre Eğitim Sistemi")
+st.title("🏛️ DELF/DALF Sınavcı-Düzeltici Asistanı")
 st.caption(
     "DELF/DALF Sınav Düzeltici | "
     + ("⚠️ MOCK MODU AKTİF — cloud servis çağrısı yapılmıyor" if MOCK_MODE else f"🟢 Vertex AI Gemini: {settings.GENERATION_MODEL}")

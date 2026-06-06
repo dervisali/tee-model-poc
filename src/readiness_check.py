@@ -42,11 +42,14 @@ class ReadinessResult:
     smoke_hits: int | None = None
 
 
-def check_readiness(run_smoke: bool = True) -> ReadinessResult:
+def check_readiness(run_smoke: bool = True, chroma_dir: Path | None = None) -> ReadinessResult:
     """Korpusun sunuma hazır olup olmadığını doğrular (tüm hataları toplar).
 
     ``run_smoke=False`` ile retrieval duman testi (Vertex embedding çağrısı)
     atlanır — UI her yeniden-çalıştırmada ucuz bir varlık kontrolü için kullanır.
+    ``chroma_dir`` verilirse dosya ve ChromaDB koleksiyon kontrolleri bu dizine
+    göre yapılır; böylece snapshot yayınlama gibi akışlar tam olarak yayınlanacak
+    veritabanını doğrular.
     """
     from src.config import settings
 
@@ -56,7 +59,7 @@ def check_readiness(run_smoke: bool = True) -> ReadinessResult:
     bm25_present = False
     smoke_hits: int | None = None
 
-    chroma_path = Path(settings.CHROMA_DIR)
+    chroma_path = Path(chroma_dir or settings.CHROMA_DIR)
     if not chroma_path.exists() or not chroma_path.is_dir():
         failures.append(
             f"ChromaDB dizini yok veya geçersiz: '{chroma_path}'. "
@@ -87,9 +90,15 @@ def check_readiness(run_smoke: bool = True) -> ReadinessResult:
 
     # ChromaDB koleksiyonu
     try:
-        from src.chroma_client import get_child_collection
+        if chroma_dir is None:
+            from src.chroma_client import get_child_collection
 
-        col = get_child_collection()
+            col = get_child_collection()
+        else:
+            import chromadb
+
+            client = chromadb.PersistentClient(path=str(chroma_path))
+            col = client.get_collection(settings.CHILD_COLLECTION_NAME)
         child_count = col.count()
         if child_count == 0:
             failures.append(f"Koleksiyon '{col.name}' boş. Uygulama ingest edilmiş veri gerektirir.")

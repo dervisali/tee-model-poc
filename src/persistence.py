@@ -487,8 +487,14 @@ def _safe_extractall(tar: tarfile.TarFile, dest: Path) -> None:
     """Path-traversal'a karşı korumalı extractall (tar slip önlemi)."""
     dest = Path(dest).resolve()
     for member in tar.getmembers():
+        if member.issym() or member.islnk():
+            raise PersistenceError(f"Güvensiz tar üyesi (link desteklenmez): {member.name}")
+        if member.isdev():
+            raise PersistenceError(f"Güvensiz tar üyesi (özel dosya desteklenmez): {member.name}")
         target = (dest / member.name).resolve()
-        if not str(target).startswith(str(dest)):
+        try:
+            target.relative_to(dest)
+        except ValueError:
             raise PersistenceError(f"Güvensiz tar üyesi (path traversal): {member.name}")
     # Python 3.12+ 'data' filtresi (ek güvenlik); 3.11'de parametre yok → geri düş.
     try:

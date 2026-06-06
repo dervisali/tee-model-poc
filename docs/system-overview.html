@@ -462,9 +462,10 @@ KAYNAK CHUNK İNDEKSLERİ: [B2_Grille_PO_pdf_par3, ...]</code></pre>
   <tr><td>Asistan</td><td>Corpus-grounded conversational chatbot (Tab 7)</td><td><span class="badge green">Live — bilingual, streaming, cited</span></td></tr>
 </table>
 
-<div class="callout warn">
-  <strong>Known cosmetic issue:</strong>
-  The app header still says "Tacit-Explicit Entegre Eğitim Sistemi" — the TEE acronym is payroll-era; DELF rebranding of the main title is pending. (See <code>app.py:217</code>.)
+<div class="callout">
+  <strong>Branding status:</strong>
+  The Streamlit title is now DELF/DALF-facing: "DELF/DALF Sınavcı-Düzeltici Asistanı".
+  Internal collection names such as <code>tee_children</code> and <code>tee_parents</code> remain unchanged to avoid an unnecessary database migration.
 </div>
 
 <!-- ============================================================ -->
@@ -490,10 +491,9 @@ KAYNAK CHUNK İNDEKSLERİ: [B2_Grille_PO_pdf_par3, ...]</code></pre>
 <h2 id="known-gaps">9. Known Gaps &amp; Deferred Work</h2>
 
 <ul>
-  <li><span class="badge orange">High</span> <strong>No formal evaluation:</strong> Gates M3 (top-3 source recall ≥90%) and M4 (citation accuracy ≥95%) have not been measured. The Phase 4 bilingual eval set (<code>evaluation/examiner_questions.json</code>, ~50 grounded Q&amp;A pairs) has not been built.</li>
+  <li><span class="badge orange">High</span> <strong>Formal evaluation not yet certified:</strong> The 50-item DELF/DALF eval set exists at <code>evaluation/delf_questions.json</code>, but expert validation decisions have not been applied yet. Gates M3 (top-3 source recall ≥90%) and M4 (citation accuracy ≥95%) still need to be measured against the validated set.</li>
   <li><span class="badge">Medium</span> <strong>Metadata filter query router (Phase 6):</strong> <code>src/metadata_filter.py</code> not yet implemented. Queries like "show me B2 grilles only" cannot filter by <code>level=B2, doc_type=grille</code> before vector search.</li>
   <li><span class="badge">Medium</span> <strong>Cloud Storage persistence (Phase 7):</strong> ChromaDB is local-disk only. Cloud Run ephemeral filesystem loses the DB on restart. FUSE mount to GCS not yet wired.</li>
-  <li><span class="badge">Medium</span> <strong>App header still says "TEE":</strong> Main title in <code>app.py:217</code> reads "Tacit-Explicit Entegre Eğitim Sistemi" (payroll-era). DELF rebrand of the header pending.</li>
   <li><span class="badge">Low</span> <strong>Chatbot safety not stress-tested:</strong> Tab 7 enforces six guardrails via system prompt only (no classifier). The rules have not been adversarially probed for jailbreaks (no-info bypass, score-decision coercion, exam-content generation, language switch).</li>
   <li><span class="badge">Low</span> <strong>RAGAS evaluator</strong> (<code>src/evaluator.py</code>) hard-coded to <code>langchain-google-vertexai</code>; breaks under <code>INFERENCE_BACKEND=public_genai</code>.</li>
   <li><span class="badge">Low</span> <strong>Contextual enrichment disabled:</strong> <code>ENABLE_CONTEXTUAL_ENRICHMENT=false</code> to save cost. Enabling it adds one LLM call per chunk (~4 950 calls) at ingest time, prepending a context summary to each child — a known retrieval quality improvement (Anthropic Contextual Retrieval, 2024).</li>

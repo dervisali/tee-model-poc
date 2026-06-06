@@ -210,6 +210,58 @@ def test_resolve_missing_snapshot_raises():
         P.resolve_remote_snapshot(bucket="b", prefix="tee-corpus", storage_client=client)
 
 
+def test_safe_extract_rejects_prefix_sibling_escape(tmp_path):
+    import io
+    import tarfile
+
+    tar_path = tmp_path / "bad.tar"
+    with tarfile.open(tar_path, "w") as tar:
+        payload = b"escape"
+        info = tarfile.TarInfo("../out_evil/pwned.txt")
+        info.size = len(payload)
+        tar.addfile(info, io.BytesIO(payload))
+
+    with tarfile.open(tar_path, "r") as tar:
+        with pytest.raises(P.PersistenceError, match="path traversal"):
+            P._safe_extractall(tar, tmp_path / "out")
+
+
+@pytest.mark.parametrize(
+    ("tar_type", "target"),
+    [
+        ("symlink", "/tmp/outside"),
+        ("hardlink", "../outside"),
+    ],
+)
+def test_safe_extract_rejects_link_members(tmp_path, tar_type, target):
+    import tarfile
+
+    tar_path = tmp_path / f"bad-{tar_type}.tar"
+    with tarfile.open(tar_path, "w") as tar:
+        info = tarfile.TarInfo("link")
+        info.type = tarfile.SYMTYPE if tar_type == "symlink" else tarfile.LNKTYPE
+        info.linkname = target
+        tar.addfile(info)
+
+    with tarfile.open(tar_path, "r") as tar:
+        with pytest.raises(P.PersistenceError, match="link desteklenmez"):
+            P._safe_extractall(tar, tmp_path / "out")
+
+
+def test_safe_extract_rejects_special_file_members(tmp_path):
+    import tarfile
+
+    tar_path = tmp_path / "bad-special.tar"
+    with tarfile.open(tar_path, "w") as tar:
+        info = tarfile.TarInfo("device")
+        info.type = tarfile.CHRTYPE
+        tar.addfile(info)
+
+    with tarfile.open(tar_path, "r") as tar:
+        with pytest.raises(P.PersistenceError, match="özel dosya"):
+            P._safe_extractall(tar, tmp_path / "out")
+
+
 def test_local_backend_does_not_import_gcs_sdk():
     """persistence import edildiğinde google-cloud-storage YÜKLENMEMELİ (tembel import)."""
     import sys

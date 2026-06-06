@@ -314,6 +314,25 @@ def _sanitize_id(stem: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_-]", "_", stem)
 
 
+def _sanitize_chroma_metadata(metadata: dict) -> dict:
+    """
+    ChromaDB metadata only accepts scalar str/int/float/bool values.
+
+    DOCX and image loaders use page=None; leaving that value in the child
+    metadata makes Chroma's Rust binding reject the entire upsert. Parent JSON
+    can keep richer/null fields, but child metadata must be Chroma-safe.
+    """
+    clean: dict = {}
+    for key, value in metadata.items():
+        if value is None:
+            continue
+        if isinstance(value, (str, int, float, bool)):
+            clean[key] = value
+        else:
+            clean[key] = str(value)
+    return clean
+
+
 # ---------------------------------------------------------------------------
 # Ana ingestion
 # ---------------------------------------------------------------------------
@@ -390,7 +409,7 @@ def run_ingestion(chunking_strategy: str | None = None) -> dict:
                         "original_text": child_text,
                         "enriched": False,
                     })
-                    source_child_metas.append(meta_dict)
+                    source_child_metas.append(_sanitize_chroma_metadata(meta_dict))
                 parent_idx += 1
 
         by_doc_type[base_meta.doc_type] = by_doc_type.get(base_meta.doc_type, 0) + len(source_child_originals)

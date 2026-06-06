@@ -57,6 +57,16 @@ def _normalize(text: str) -> str:
     return " ".join(text.split())
 
 
+def _tesseract_runtime_errors(pytesseract_module) -> tuple[type[BaseException], ...]:
+    """pytesseract sürümlerinde değişebilen OCR runtime hatalarını yakala."""
+    error_types: list[type[BaseException]] = [UnicodeDecodeError]
+    for name in ("TesseractNotFoundError", "TesseractError"):
+        exc_type = getattr(pytesseract_module, name, None)
+        if isinstance(exc_type, type) and issubclass(exc_type, BaseException):
+            error_types.append(exc_type)
+    return tuple(error_types)
+
+
 # ---------------------------------------------------------------------------
 # Format-bazlı loader'lar
 # ---------------------------------------------------------------------------
@@ -97,11 +107,13 @@ def _ocr_pdf_page(page, *, lang: str = "fra") -> str:
     except ImportError as exc:
         raise LoaderError("pytesseract yüklü değil") from exc
 
-    img = page.to_image(resolution=200).original  # PIL Image (pypdfium2 backend)
     try:
+        img = page.to_image(resolution=200).original  # PIL Image (pypdfium2 backend)
         return pytesseract.image_to_string(img, lang=lang)
-    except pytesseract.TesseractNotFoundError as exc:  # type: ignore[attr-defined]
-        raise LoaderError("tesseract sistem ikilisi bulunamadı") from exc
+    except _tesseract_runtime_errors(pytesseract) as exc:
+        raise LoaderError(f"OCR başarısız: {type(exc).__name__}: {exc}") from exc
+    except Exception as exc:  # noqa: BLE001 — render/OCR backendleri farklı hatalar yükseltebilir
+        raise LoaderError(f"OCR render başarısız: {type(exc).__name__}: {exc}") from exc
 
 
 def load_docx(path: Path) -> list[PageContent]:
@@ -175,10 +187,8 @@ def load_image_ocr(path: Path, *, lang: str = "fra") -> list[PageContent]:
     try:
         with Image.open(str(path)) as img:
             text = pytesseract.image_to_string(img, lang=lang)
-    except pytesseract.TesseractNotFoundError as exc:  # type: ignore[attr-defined]
-        raise LoaderError(
-            "tesseract sistem ikilisi bulunamadı (macOS: brew install tesseract tesseract-lang)"
-        ) from exc
+    except _tesseract_runtime_errors(pytesseract) as exc:
+        raise LoaderError(f"OCR başarısız: {type(exc).__name__}: {exc}") from exc
 
     return [PageContent(text=_normalize(text), page=None, total_pages=1)]
 

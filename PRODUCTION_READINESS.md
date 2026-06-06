@@ -171,7 +171,9 @@ this is a starting point for the destructive-lever round, not a certification.
 > **BLOCKED**. Next steps to attempt the gate: (1) DELF-expert validation of the eval set; (2) the
 > destructive re-ingest levers (contextual enrichment; grille/PPTX/OCR extraction quality) targeting
 > the grille/descripteur/B2 buckets; (3) commit the reranker; (4) measure M4. All require explicit
-> authorization (re-ingest is ~4,950 Gemini calls and rebuilds `chroma_db/`).
+> authorization (re-ingest is ~4,950 Gemini calls and rebuilds the non-baseline
+> `chroma_db_enriched/` experiment directory; certification fingerprints prove `chroma_db/` stayed
+> unchanged).
 
 ---
 
@@ -226,13 +228,43 @@ Adversarial results — deterministic input-screen layer (`python -m scripts.adv
 
 ---
 
-## Phase 4 — Serving, auth, deploy  ·  Status: 🔴
+## Phase 4 — Serving, auth, deploy  ·  Status: 🟡  ·  deploy path guarded; live deploy pending M3/M4 certification
 
-- Authentication / access control: _(mechanism)_
-- Serving model decision: ☐ keep Streamlit ☐ FastAPI + frontend — _(justification + load test)_
-- CI quality gate (eval metrics block regressions): _(thresholds)_ · Deploy (canary/rollback): _(describe)_
-- Real GCS bucket + first snapshot upload + Cloud Run deploy (carried from Phase 1): _(describe)_
-- Residual risks: _(fill)_
+- Authentication / access control: Cloud Run IAM. The production deploy command must include
+  `--no-allow-unauthenticated`; approved users/groups receive `roles/run.invoker` explicitly.
+- Serving model decision: keep Streamlit for the first certified pilot. The app is already
+  containerized, listens on `$PORT`, and bootstrap fails unhealthy when the corpus is unavailable.
+  FastAPI + separate frontend remains a later scale/UX refactor, not a blocker for a controlled pilot.
+- Deployment guard: `scripts/render_cloud_run_deploy.py` renders the Cloud Run command with
+  authenticated access, `PERSISTENCE_BACKEND=gcs`, `REQUIRE_CORPUS_ON_STARTUP=true`, `MOCK_MODE=false`,
+  `INFERENCE_BACKEND=vertex`, `GCS_SNAPSHOT_PREFIX=tee-corpus`, `CHROMA_DIR=/tmp/chroma_db`, and
+  `EMBEDDING_DIMENSION=3072`.
+  It also renders the required runtime service-account IAM grants for Vertex AI access and GCS
+  snapshot reads, enforces the minimum serving shape for snapshot restore (memory ≥ 2 GiB, CPU ≥ 2,
+  timeout ≥ 300 s, `min-instances` ≥ 1), and refuses embedding-dimension drift because that would
+  require a full re-ingest.
+- Certification gate: `scripts.certification_status` now requires a
+  `cloud_run_deploy_plan_*.json` artifact plus a `corpus_snapshot_publish_plan_*.json` artifact, and
+  rejects missing/private-auth flags, placeholder bucket/snapshot-prefix/image/group values, public
+  invokers, missing runtime IAM coverage, missing GCS persistence, undersized Cloud Run resource
+  settings, and missing startup corpus enforcement.
+- Runbook: `docs/cloud-run-deploy.md`.
+- CI quality gate (eval metrics block regressions): still pending. Required thresholds remain
+  certification status green: expert validation complete, controlled enriched-ingest M3 recall@5 ≥ 90%,
+  M4 citation grounding ≥ 95%, and deployment safety artifact green. The M3 gate rejects naked recall
+  numbers unless the artifact also proves clean preflight, contextual enrichment, 3072-dim embeddings,
+  a ready non-baseline experiment DB, and unchanged baseline `chroma_db` fingerprints before/after the
+  run. The M4 gate rejects naked citation summaries unless the artifact proves a validated-only,
+  full-set run on a non-baseline Chroma dir with no generation errors.
+  A cross-artifact consistency gate also verifies M3 and M4 used the same validated eval path, same
+  enriched Chroma dir as the snapshot-publication plan, same answerable/source-backed eval count, same
+  GCS bucket/prefix as the deploy-plan artifact, and the same `certification_run_id`.
+  The eval gate requires the strict expert-validation manifest and matching output checksum; manually
+  editing `validation_status` fields is not sufficient.
+- Real GCS bucket + first snapshot upload + Cloud Run deploy: pending until retrieval/citation
+  certification passes. The command is now reproducible; it has not been executed against real GCP.
+- Residual risks: no live Cloud Run load test yet; deploy memory/startup probe assumptions still need
+  real-service verification after the certified snapshot exists.
 
 ---
 
@@ -256,7 +288,7 @@ Adversarial results — deterministic input-screen layer (`python -m scripts.adv
 | 6 | **M3 not met (live 79%; best lever 83% < 90%)** | H | H | 🔴 OPEN — needs destructive re-ingest levers and/or expert validation. |
 | 7 | M4 citation accuracy unmeasured | H | — | 🔴 OPEN. |
 | 8 | Safety/abuse hardening incomplete | H | M | 🟡 Partly mitigated (Phase 3) — 3-layer defense (input screen 14/14 adversarial, grounding refusal gate, rate limit, audit+PII redaction) built & unit-tested; behavioral layers pending a live confirmation run. |
-| 9 | No auth / serving load unproven | H | — | 🔴 OPEN — Phase 4. |
+| 9 | No auth / serving load unproven | H | — | 🟡 Auth deploy path guarded (`--no-allow-unauthenticated` renderer + runbook); live deploy/load test pending. |
 | 10 | Cloud Run OOM on extract/first query | H | M | ⏳ Deploy-time — memory ≥ 2 GiB; Phase 4. |
 
 ## Sign-off

@@ -1,5 +1,9 @@
 .git
 .gitignore
+.agents/
+.codex/
+.playwright-cli/
+.playwright-mcp/
 __pycache__
 *.pyc
 *.pyo
@@ -11,12 +15,21 @@ venv/
 tmp*/
 scratch.py
 *.md
+*.zip
 *.docx
 *.key
 *.pptx
+docs/
+evaluation/
+logs/
+output/
 screenshots/
+tests/
 
 # Korpus imaja GÖMÜLMEZ (Phase 1) — durağanlaşmayı önler, GCS senkronizasyonunu zorunlu kılar.
 # Yerel docker-compose, ./chroma_db bind-mount'u ile korpusu yine de görür.
 chroma_db/
+chroma_db_enriched/
 .chroma_staging/
+new_docs/
+new_docs_subset/
