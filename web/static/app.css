@@ -16,6 +16,11 @@ html, body { height: 100%; }
 @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 .rise { animation: rise .22s ease both; }
 
+/* Streaming answer */
+.stream-target { white-space: pre-wrap; }
+.stream-cursor { display: inline-block; margin-left: 1px; color: #345aa8; animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+
 /* Rendered answer body */
 .answer p { margin: 0 0 .6rem; }
 .answer p:last-child { margin-bottom: 0; }

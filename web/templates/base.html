@@ -4,27 +4,10 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>{% block title %}DELF/DALF Sınavcı-Düzeltici Asistanı{% endblock %}</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏛️</text></svg>">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
 
 
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            brand: { 50:'#eef3fb',100:'#d6e2f5',200:'#adc4ea',300:'#7e9fdb',
-                     400:'#5179c6',500:'#345aa8',600:'#274785',700:'#21396a',
-                     800:'#1b2f57',900:'#162b4e', 950:'#0f1b34' },
-            accent:{ 500:'#c8102e', 600:'#a60d26' },
-          },
-          fontFamily: { sans: ['Inter','ui-sans-serif','system-ui','sans-serif'] },
-          boxShadow: { card:'0 1px 2px rgba(16,24,40,.06),0 1px 3px rgba(16,24,40,.10)',
-                       lift:'0 8px 24px -8px rgba(16,24,40,.18)' },
-        }
-      }
-    }
-  </script>
+  <link rel="stylesheet" href="/static/tailwind.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>

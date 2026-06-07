@@ -1,0 +1,7 @@
+/* Tailwind entry. Compiled to tailwind.css (committed). Rebuild:
+ *   npx --yes tailwindcss@3 -c tailwind.config.js \
+ *     -i web/static/tailwind.src.css -o web/static/tailwind.css --minify
+ */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

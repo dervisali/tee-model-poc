@@ -27,9 +27,7 @@
 
   <!-- Composer -->
   <div class="sticky bottom-0 pt-4 mt-4">
-    <form id="chat-form" hx-post="/chat" hx-target="#chat-log" hx-swap="beforeend"
-          hx-on::after-request="if(event.detail.successful){this.reset(); document.getElementById('empty-state')?.remove(); scrollChat();}"
-          class="rounded-2xl border border-slate-200 bg-white shadow-card p-2.5">
+    <form id="chat-form" class="rounded-2xl border border-slate-200 bg-white shadow-card p-2.5">
       <div class="flex items-end gap-2">
         <textarea id="msg" name="message" rows="1" required
                   placeholder="Sorunuzu yazın… (ör. «Çift düzeltmede görüş ayrılığı nasıl çözülür?»)"
@@ -56,9 +54,70 @@
 <script>
   function autogrow(el){ el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,160)+'px'; }
   function scrollChat(){ const m=document.querySelector('main'); if(m) m.scrollTop=m.scrollHeight; }
+  function esc(s){ const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+
   document.addEventListener('click', e=>{
     const chip=e.target.closest('.example-chip');
     if(chip){ const t=document.getElementById('msg'); t.value=chip.dataset.q; autogrow(t); t.focus(); }
+  });
+
+  function exchangeHTML(text){
+    return ''+
+      '<div class="flex justify-end"><div class="max-w-[80%] rounded-2xl rounded-br-md bg-brand-600 px-4 py-2.5 text-sm text-white shadow-sm whitespace-pre-wrap">'+esc(text)+'</div></div>'+
+      '<div class="flex gap-3"><div class="mt-0.5 h-8 w-8 shrink-0 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-base">🏛️</div>'+
+        '<div class="min-w-0 flex-1"><div class="answer rounded-2xl rounded-tl-md bg-white px-4 py-3 text-sm leading-relaxed text-slate-800 shadow-card ring-1 ring-slate-100">'+
+          '<span class="stream-target"></span><span class="stream-cursor">▋</span></div>'+
+          '<div class="sources-target"></div></div></div>';
+  }
+
+  const form = document.getElementById('chat-form');
+  form.addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    const msgEl = document.getElementById('msg');
+    const text = msgEl.value.trim();
+    if(!text) return;
+    const lang = form.querySelector('[name=language]').value;
+    document.getElementById('empty-state')?.remove();
+
+    const block = document.createElement('div');
+    block.className = 'rise space-y-4';
+    block.innerHTML = exchangeHTML(text);
+    document.getElementById('chat-log').appendChild(block);
+    msgEl.value=''; autogrow(msgEl); scrollChat();
+
+    const answerEl = block.querySelector('.answer');
+    const streamTarget = block.querySelector('.stream-target');
+    const sourcesTarget = block.querySelector('.sources-target');
+    const btn = form.querySelector('.send-btn'); btn.classList.add('htmx-request');
+
+    try {
+      const fd = new FormData(); fd.append('message', text); fd.append('language', lang);
+      const res = await fetch('/chat/stream', {method:'POST', body: fd});
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+      while(true){
+        const {done, value} = await reader.read();
+        if(done) break;
+        buf += dec.decode(value, {stream:true});
+        const i = buf.indexOf('\x1e');
+        streamTarget.textContent = (i === -1) ? buf : buf.slice(0, i);
+        scrollChat();
+      }
+      const i = buf.indexOf('\x1e');
+      if(i !== -1){
+        const data = JSON.parse(buf.slice(i+1));
+        answerEl.innerHTML = data.answer_html;
+        sourcesTarget.innerHTML = data.sources_html;
+      } else {
+        block.querySelector('.stream-cursor')?.remove();
+      }
+    } catch(err){
+      answerEl.innerHTML = '<p class="text-rose-600 text-sm">Bağlantı hatası. Lütfen tekrar deneyin.</p>';
+    } finally {
+      btn.classList.remove('htmx-request');
+      scrollChat();
+    }
   });
 </script>
 {% endblock %}

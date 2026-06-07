@@ -9,8 +9,10 @@ layer, one deployable service). Run:
 from __future__ import annotations
 
 import html
+import json
 import re
 import sys
+import uuid
 from pathlib import Path
 
 from markupsafe import Markup
@@ -20,12 +22,18 @@ if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
 from fastapi import FastAPI, Form, Request  # noqa: E402
-from fastapi.responses import HTMLResponse, RedirectResponse  # noqa: E402
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 from fastapi.templating import Jinja2Templates  # noqa: E402
 
 from src.config import settings  # noqa: E402
 from src.chatbot import chat_stream  # noqa: E402
+
+# In-memory, per-session chat history (demo scope; capped). Keyed by the `sid`
+# cookie. Format matches src.chatbot: [{"role": "user"|"assistant", "content"}].
+HISTORY: dict[str, list[dict]] = {}
+HISTORY_CAP = 12
+STREAM_SEP = "\x1e"
 
 app = FastAPI(title="DELF/DALF Sınavcı Asistanı")
 TEMPLATES = Jinja2Templates(directory=str(REPO / "web" / "templates"))
@@ -82,26 +90,67 @@ def home() -> RedirectResponse:
     return RedirectResponse("/asistan")
 
 
+def _sid(request: Request) -> str:
+    return request.cookies.get("sid") or uuid.uuid4().hex
+
+
+def _remember(hist: list[dict], user_text: str, answer: str) -> None:
+    hist.append({"role": "user", "content": user_text})
+    hist.append({"role": "assistant", "content": answer})
+    del hist[:-HISTORY_CAP]
+
+
 @app.get("/asistan", response_class=HTMLResponse)
 def asistan(request: Request) -> HTMLResponse:
     ctx = base_ctx(request, "asistan")
     ctx["examples"] = EXAMPLES
-    return TEMPLATES.TemplateResponse(request, "asistan.html", ctx)
+    resp = TEMPLATES.TemplateResponse(request, "asistan.html", ctx)
+    resp.set_cookie("sid", _sid(request), httponly=True, samesite="lax")
+    return resp
 
 
 @app.post("/chat", response_class=HTMLResponse)
 def chat(request: Request, message: str = Form(...), language: str = Form("tr")) -> HTMLResponse:
+    """Non-streaming fallback (kept for no-JS / progressive enhancement)."""
+    sid = _sid(request)
     text = message.strip()
-    gen, sources = chat_stream(text, history=[], language=language if language in ("tr", "fr") else "tr")
+    hist = HISTORY.setdefault(sid, [])
+    gen, sources = chat_stream(text, history=list(hist), language=_lang(language), session_id=sid)
     answer = "".join(gen)
-    ctx = {
-        "request": request,
-        "message": text,
-        "answer": render_answer(answer),
-        "sources": sources,
-        "refused": not sources,
-    }
-    return TEMPLATES.TemplateResponse(request, "partials/chat_exchange.html", ctx)
+    _remember(hist, text, answer)
+    ctx = {"request": request, "message": text, "answer": render_answer(answer),
+           "sources": sources, "refused": not sources}
+    resp = TEMPLATES.TemplateResponse(request, "partials/chat_exchange.html", ctx)
+    resp.set_cookie("sid", sid, httponly=True, samesite="lax")
+    return resp
+
+
+@app.post("/chat/stream")
+def chat_stream_endpoint(request: Request, message: str = Form(...), language: str = Form("tr")) -> StreamingResponse:
+    """Streams answer tokens, then a STREAM_SEP-prefixed JSON tail with the
+    server-rendered answer HTML + source cards. Multi-turn via the sid cookie."""
+    sid = _sid(request)
+    text = message.strip()
+    hist = HISTORY.setdefault(sid, [])
+    gen, sources = chat_stream(text, history=list(hist), language=_lang(language), session_id=sid)
+
+    def produce():
+        parts: list[str] = []
+        for piece in gen:
+            parts.append(piece)
+            yield piece
+        full = "".join(parts)
+        _remember(hist, text, full)
+        payload = {
+            "answer_html": str(render_answer(full)),
+            "sources_html": TEMPLATES.env.get_template("partials/_sources.html").render(sources=sources),
+            "refused": not sources,
+        }
+        yield STREAM_SEP + json.dumps(payload)
+
+    resp = StreamingResponse(produce(), media_type="text/plain; charset=utf-8")
+    resp.set_cookie("sid", sid, httponly=True, samesite="lax")
+    return resp
 
 
 def _generate(request: Request, partial: str, fn, **kwargs) -> HTMLResponse:
