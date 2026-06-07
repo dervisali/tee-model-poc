@@ -8,6 +8,7 @@ loaded at import time.
 
 Typical sequence:
     python -m scripts.run_enriched_retrieval_experiment --preflight
+    python -m scripts.run_enriched_retrieval_experiment --warm-cache-only --max-cache-misses 100
     python -m scripts.run_enriched_retrieval_experiment --run-ingest --force
     python -m scripts.run_enriched_retrieval_experiment --skip-ingest --evaluate
 """
@@ -263,6 +264,108 @@ def _run_ingest() -> dict:
     return clear_and_reingest()
 
 
+def _limit_missing_chunks(
+    document_id: str,
+    chunks: list[str],
+    cache: dict[str, str],
+    *,
+    max_misses: int | None,
+) -> list[str]:
+    """Return chunks not already in the enrichment cache, capped if requested."""
+    from src.contextual_enrichment import _cache_key
+
+    missing: list[str] = []
+    for chunk in chunks:
+        if _cache_key(document_id, chunk) in cache:
+            continue
+        missing.append(chunk)
+        if max_misses is not None and len(missing) >= max_misses:
+            break
+    return missing
+
+
+def _warm_enrichment_cache(max_cache_misses: int | None = None) -> dict:
+    """
+    Populate contextual enrichment cache without writing retrieval DB artifacts.
+
+    This is a resumable helper for the long enriched-ingestion path. The final
+    controlled experiment still needs --run-ingest --evaluate to produce
+    parents.json, BM25, Chroma collections, baseline fingerprints, and recall
+    measurements.
+    """
+    from src.chunkers import get_parent_chunker
+    from src.config import settings
+    from src.contextual_enrichment import _load_cache, enrich_chunks
+    from src.ingestion import _load_documents, _sanitize_id, _split_into_child_chunks
+
+    strategy = settings.CHUNKING_STRATEGY
+    parent_chunker = get_parent_chunker(strategy)
+    documents = _load_documents()
+    cache = _load_cache()
+    cache_entries_before = len(cache)
+
+    total_child_chunks = 0
+    total_missing_before = 0
+    warmed_misses = 0
+    docs_seen = 0
+    docs_warmed = 0
+    stopped_after_limit = False
+
+    for doc_load in documents:
+        docs_seen += 1
+        safe_stem = _sanitize_id(doc_load.metadata.source_filename)
+        child_chunks: list[str] = []
+        for pc in doc_load.pages:
+            for parent_text in parent_chunker(pc.text):
+                child_chunks.extend(_split_into_child_chunks(parent_text))
+
+        total_child_chunks += len(child_chunks)
+        missing = _limit_missing_chunks(
+            safe_stem,
+            child_chunks,
+            cache,
+            max_misses=None,
+        )
+        total_missing_before += len(missing)
+        if not missing:
+            continue
+
+        remaining = None if max_cache_misses is None else max_cache_misses - warmed_misses
+        if remaining is not None and remaining <= 0:
+            stopped_after_limit = True
+            break
+        to_warm = missing[:remaining]
+        if len(to_warm) < len(missing):
+            stopped_after_limit = True
+
+        _, stats = enrich_chunks(
+            doc_load.full_text,
+            to_warm,
+            document_id=safe_stem,
+        )
+        docs_warmed += 1
+        warmed_misses += stats["misses"]
+
+        cache = _load_cache()
+        if max_cache_misses is not None and warmed_misses >= max_cache_misses:
+            stopped_after_limit = True
+            break
+
+    cache_entries_after = len(_load_cache())
+    return {
+        "chunking_strategy": strategy,
+        "documents_seen": docs_seen,
+        "documents_warmed": docs_warmed,
+        "total_child_chunks_seen": total_child_chunks,
+        "cache_entries_before": cache_entries_before,
+        "cache_entries_after": cache_entries_after,
+        "missing_chunks_before": total_missing_before,
+        "warmed_misses": warmed_misses,
+        "max_cache_misses": max_cache_misses,
+        "stopped_after_limit": stopped_after_limit,
+    }
+
+
 def _run_recall(eval_path: Path, results_dir: Path, *, rerank: bool) -> dict:
     from src.config import settings
     from src.evaluator import load_test_questions, run_recall_report
@@ -301,6 +404,17 @@ def main() -> int:
     parser.add_argument("--results-dir", type=Path, default=REPO / "evaluation" / "results")
     parser.add_argument("--certification-run-id")
     parser.add_argument("--preflight", action="store_true", help="Check inputs only; no ingest/eval.")
+    parser.add_argument(
+        "--warm-cache-only",
+        action="store_true",
+        help="Populate enrichment_cache.json only; no Chroma/parents/BM25 write.",
+    )
+    parser.add_argument(
+        "--max-cache-misses",
+        type=int,
+        default=None,
+        help="Maximum cache misses to warm in this run; only valid with --warm-cache-only.",
+    )
     parser.add_argument("--run-ingest", action="store_true", help="Clear/rebuild the experiment DB.")
     parser.add_argument("--skip-ingest", action="store_true", help="Reuse an existing experiment DB.")
     parser.add_argument("--evaluate", action="store_true", help="Run recall reports after ingest/reuse.")
@@ -328,15 +442,43 @@ def main() -> int:
     if str(REPO) not in sys.path:
         sys.path.insert(0, str(REPO))
 
+    if args.max_cache_misses is not None and args.max_cache_misses < 1:
+        raise SystemExit("--max-cache-misses must be >= 1")
+
     preflight = _preflight(
         chroma_dir,
         data_dir,
         eval_path,
-        check_experiment_db=not args.run_ingest,
+        check_experiment_db=not args.run_ingest and not args.warm_cache_only,
     )
     if args.preflight:
         print(json.dumps(preflight, ensure_ascii=False, indent=2))
         return 0 if not preflight["document_failures"] else 2
+
+    if args.warm_cache_only:
+        if args.run_ingest or args.skip_ingest or args.evaluate:
+            raise SystemExit("--warm-cache-only cannot be combined with ingest/evaluate flags.")
+        _refuse_unsafe_target(chroma_dir, force=True)
+        chroma_dir.mkdir(parents=True, exist_ok=True)
+        summary = {
+            "metadata": {
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "experiment_chroma_dir": str(chroma_dir),
+                "data_dir": str(data_dir),
+                "contextual_enrichment": True,
+                "chunking_strategy": "paragraph",
+                "mode": "warm-cache-only",
+            },
+            "preflight": preflight,
+            "warm_cache": _warm_enrichment_cache(args.max_cache_misses),
+        }
+        out = _write_experiment_summary(summary, results_dir)
+        print(f"cache warm summary: {out}")
+        print(json.dumps(summary["warm_cache"], ensure_ascii=False, indent=2))
+        return 0
+
+    if args.max_cache_misses is not None:
+        raise SystemExit("--max-cache-misses is only valid with --warm-cache-only.")
 
     if not args.run_ingest and not args.skip_ingest:
         raise SystemExit("Choose --run-ingest or --skip-ingest. Use --preflight for checks only.")

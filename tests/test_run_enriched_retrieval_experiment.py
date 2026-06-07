@@ -7,6 +7,7 @@ from scripts.run_enriched_retrieval_experiment import (
     _baseline_integrity,
     _directory_fingerprint,
     _experiment_db_readiness,
+    _limit_missing_chunks,
     _preflight,
     _prepare_reingest_target,
     _refuse_unsafe_target,
@@ -43,6 +44,30 @@ def test_write_experiment_summary_uses_custom_results_dir(tmp_path):
     assert path.parent == tmp_path
     assert path.name.startswith("enriched_experiment_")
     assert data["ok"] is True
+
+
+def test_limit_missing_chunks_skips_cached_and_respects_cap():
+    from src.contextual_enrichment import _cache_key
+
+    document_id = "doc"
+    chunks = ["one", "two", "three"]
+    cache = {_cache_key(document_id, "one"): "cached"}
+
+    missing = _limit_missing_chunks(document_id, chunks, cache, max_misses=1)
+
+    assert missing == ["two"]
+
+
+def test_limit_missing_chunks_returns_all_missing_without_cap():
+    from src.contextual_enrichment import _cache_key
+
+    document_id = "doc"
+    chunks = ["one", "two", "three"]
+    cache = {_cache_key(document_id, "two"): "cached"}
+
+    missing = _limit_missing_chunks(document_id, chunks, cache, max_misses=None)
+
+    assert missing == ["one", "three"]
 
 
 def test_preflight_can_skip_experiment_db_readiness_before_destructive_rebuild(tmp_path, monkeypatch):
