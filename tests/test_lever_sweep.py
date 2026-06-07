@@ -1,6 +1,13 @@
 """Tests for non-destructive retrieval lever sweep summaries."""
 
-from scripts.lever_sweep import _summarize
+from scripts.lever_sweep import _config_specs, _summarize
+
+
+def test_sweep_includes_full_recall_mode():
+    names = [name for name, _, _ in _config_specs()]
+
+    assert "full_recall_mode_no_rerank" in names
+    assert "full_recall_mode" in names
 
 
 def test_summarize_reports_m3_and_top3_buckets():

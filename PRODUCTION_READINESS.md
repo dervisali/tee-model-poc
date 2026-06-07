@@ -8,19 +8,22 @@
 > unmet gate is a **no-go** — do not paper over it.
 
 - **Status:** 🟡 In progress — Phase 1 (Persistence) complete; Phase 2 (Retrieval) measurable
-  (**live baseline top-3 recall = 70%; archived recall@5 = 79%; best archived recall@5 lever
-  (reranker) = 83%; M3 ≥ 90% NOT met**, gate not
-  certified); Phase 3 (Safety) defense-in-depth built + unit-tested (input screen 14/14 adversarial,
+  (**live committed-default baseline top-3 recall = 70%; current best opt-in retrieval lever
+  reaches provisional M3 recall@3 = 94%**, but gate is not certified because the eval set is not
+  DELF-expert validated, M4 is unmeasured, and the enriched-ingestion artifact is incomplete);
+  Phase 3 (Safety) defense-in-depth built + unit-tested (input screen 14/14 adversarial,
   grounding refusal gate, rate limit, audit log w/ PII redaction — behavioral layers pending a live
   run); Phases 4–5 pending.
-- **Last updated:** 2026-05-30
+- **Last updated:** 2026-06-07
 - **Owner / reviewer:** Engineering (pending DELF-domain + governance sign-off)
 - **Commit / branch under assessment:** branch `feature/delf-corpus-migration` @ `9f57fc4` (+ working tree)
 
 > **Numbers source-of-truth:** all Phase 2 figures below are read from
-> `evaluation/results/recall_baseline_20260530T061718Z.{json,md}` (live baseline) and the lever runs
-> summarized in `evaluation/results/lever_summary_20260530.md`. If any number here disagrees with
-> those artifacts, the artifacts win.
+> `evaluation/results/recall_baseline_20260530T061718Z.{json,md}` (committed-default baseline),
+> `evaluation/results/lever_sweep_20260607T104107Z.json` (controlled disposable-copy no-rerank
+> full recall mode), and `evaluation/results/lever_sweep_20260607T104000Z.json` (controlled
+> disposable-copy full recall mode with rerank). If any number here disagrees with those artifacts,
+> the artifacts win.
 
 ---
 
@@ -28,20 +31,19 @@
 
 | Deployment mode | Recommendation | Blocking gaps |
 |---|---|---|
-| Supervised internal pilot | 🟡 provisional | Eval GT unvalidated; M3 below line; safety (Phase 3) not started |
-| **Unsupervised production** | 🔴 NO-GO | Phase 2 M3 not met (live 79%; best lever 83% < 90%); GT unvalidated; M4 unmeasured; Phases 3–5 not started |
+| Supervised internal pilot | 🟡 provisional | Eval GT unvalidated; M4 unmeasured; enriched-ingestion artifact incomplete; live safety run pending |
+| **Unsupervised production** | 🔴 NO-GO | GT unvalidated; M4 unmeasured; enriched-ingestion artifact incomplete; auth/serving/deploy gates incomplete |
 
 **One-paragraph honest summary:** _(fill in LAST — after Phase 5)._ Interim (post-Phase 2):
-**Unsupervised production is a 🔴 NO-GO, and Phase 2 is the hard blocker.** Phase 1 (durable
-persistence) is done and verified. Phase 2 retrieval is now genuinely **measurable** (the eval ground
-truth was fixed from fictional → real corpus filenames, and a Unicode NFC/NFD matching bug was
-fixed). On the **live** eval the committed-default config gives **top-3 recall = 70%**
-(archived recall@5 = 79%), and the archived non-destructive lever sweep never showed enough margin
-to clear the 90% gate — the best recall@5 run (LLM reranker) was **83%**;
-cross-lingual BM25 is worse (77%). On top of that the ground truth is **UNVALIDATED** (no
-DELF-expert sign-off) and **M4 (citation accuracy) is unmeasured**. Reaching M3 will require the
-destructive re-ingest levers (contextual enrichment; grille/PPTX/OCR extraction quality) and/or
-expert validation of the eval — none of which is done. Phases 3–5 not started.
+**Unsupervised production is a 🔴 NO-GO.** Phase 1 (durable persistence) is done and verified.
+Phase 2 retrieval is genuinely **measurable** (the eval ground truth was fixed from fictional → real
+corpus filenames, and a Unicode NFC/NFD matching bug was fixed). The committed-default live baseline
+still gives **top-3 recall = 70%**, but opt-in retrieval levers now clear the numeric provisional M3
+target on the current, unvalidated eval file: **93% without rerank** using source hints + guarded
+metadata + source diversification, and **94% with rerank** in full recall mode. This is **not
+certification**: the ground truth is **UNVALIDATED** (no DELF-expert sign-off), **M4 citation
+accuracy is unmeasured**, and the controlled enriched-ingestion artifact is not complete. Phases
+4-5 remain pending.
 
 ---
 
@@ -83,18 +85,19 @@ ChromaDB is local-only; Cloud Run's ephemeral FS drops it on restart.
 
 ---
 
-## Phase 2 — Retrieval quality  ·  Status: 🔴  ·  **GATE NOT MET — live baseline top-3 recall = 70%; archived best recall@5 lever = 83% < 90%; GT unvalidated; M4 unmeasured**
+## Phase 2 — Retrieval quality  ·  Status: 🟡  ·  **NUMERIC M3 MET PROVISIONALLY BY OPT-IN LEVERS; CERTIFICATION BLOCKED BY GT VALIDATION, M4, AND ENRICHED ARTIFACT**
 
 Milestones: **M3** = top-3 source recall ≥ 90% · **M4** = citation accuracy ≥ 95%.
 
-> **⚠️ M3 IS NOT MET.** Two real defects were fixed to make this measurable: (1) the v1 eval set's
+> **⚠️ M3 IS NOT CERTIFIED.** Two real defects were fixed to make this measurable: (1) the v1 eval set's
 > `expected_sources` were **fictional** (only 1 of 19 filenames existed) → all recall was ~0;
 > (2) the recall harness compared filenames without **Unicode NFC** normalization, while macOS corpus
 > filenames are NFD ('é' = e + U+0301) and eval gold is NFC — so 4 accented gold sources silently
 > mismatched. Both fixed. On the resulting **live** eval, the committed default gives **top-3 recall
-> = 70%** (archived recall@5 = 79%), and **no retrieval-time lever crosses 90%** in the archived
-> recall@5 sweep (reranker 83%, cross-lingual 77%). The ground
-> truth is also **UNVALIDATED** and **M4 is unmeasured**.
+> = 70%** (archived recall@5 = 79%). New opt-in retrieval-time levers cross the numerical 90% line on
+> the current 50-question file: **93% without rerank** in source-hints + metadata +
+> source-diversification mode and **94% with rerank** in full recall mode. The ground truth is still
+> **UNVALIDATED**, **M4 is unmeasured**, and the controlled enriched re-ingest remains incomplete.
 >
 > **Note on MOCK_MODE:** retrieval/embeddings are NOT gated by `MOCK_MODE` (no such branch in
 > `embeddings.py`/`retrieval.py`/`hybrid_search.py`); the flag only stubs generation LLMs. So recall
@@ -141,7 +144,10 @@ miss needing better ingestion.
 
 ### 2c. Improvement levers (live; `MOCK_MODE=false python -m scripts.lever_sweep`)
 
-Detail: `evaluation/results/lever_summary_20260530.md`.
+Legacy detail: `evaluation/results/lever_summary_20260530.md`. Current controlled disposable-copy
+artifacts: `evaluation/results/lever_sweep_20260607T104107Z.json` (no rerank) and
+`evaluation/results/lever_sweep_20260607T104000Z.json` (with rerank). Both artifacts include
+baseline before/after fingerprints and report `baseline_integrity.ok=true`.
 
 | Lever | M3 recall@3 | recall@5 | vs baseline M3 | Notable | Keep? |
 |---|---|---|---|---|---|
@@ -149,29 +155,34 @@ Detail: `evaluation/results/lever_summary_20260530.md`.
 | reranker on (fetch_k 20) | 0.78 | 0.83 | +0.08 | grille improves, still below M3 | ✅ useful, insufficient |
 | reranker + guarded PO auto metadata filter | 0.84 | 0.88 | +0.14 | grille@3 0.95, TR@3 0.917; descripteur remains weak at 0.444 | ✅ useful, insufficient |
 | **reranker + guarded PO auto metadata + explicit source hints** | **0.94** | **0.97** | **+0.24** | descripteur@3 1.00, FR@3 0.942, TR@3 0.938; remaining misses concentrate in PE/manual/presentation edge cases | ✅ current best provisional lever |
+| guarded PO auto metadata + explicit source hints, no rerank | 0.89 | 0.94 | +0.19 | one point below M3; duplicate source crowding remains | ⚠️ useful diagnostic |
+| guarded PO auto metadata + explicit source hints + source diversification, no rerank | 0.93 | 0.95 | +0.23 | lifts no-rerank over 90% by reducing duplicate source crowding | ✅ useful for recall mode |
+| **full recall mode: reranker + guarded PO auto metadata + explicit source hints + source diversification** | **0.94** | **0.96** | **+0.24** | preserves reranked M3 and improves hit@3 to 0.98; lower precision because source-recall is prioritized | ✅ current best recall-mode config |
 | cross-lingual BM25 on | — | 0.77 | no gain | tr recall regresses; lifts recall@10 only | ❌ keep off |
-| source diversification | 0.76 | — | −0.02 vs rerank | duplicate-source crowding fix looked plausible but regressed live eval | ❌ keep off |
+| source diversification alone | 0.76 | — | −0.02 vs rerank | broad use regressed earlier; useful only with source hints + metadata in recall mode | ⚠️ guarded use only |
 | `ENABLE_CONTEXTUAL_ENRICHMENT` (re-ingest) | — | — | — | targets descripteur/general definition misses | ⏳ deferred — destructive/long-running |
-| Ingestion fix: grille/PPTX/OCR (re-ingest) | — | — | — | OCR preflight clean; full enriched DB not rebuilt yet | ⏳ deferred — re-ingest |
+| Ingestion fix: grille/PPTX/OCR (re-ingest) | — | — | — | OCR smoke clean: 56/56 non-empty (`corpus_smoke_20260607T103412Z.json`); full enriched DB not rebuilt yet | ⏳ deferred — re-ingest |
 | `HYBRID_ALPHA` tuning, cross-encoder, query rewrite/HyDE | — | — | — | not pursued yet | ⏳ deferred |
 
 **CLAUDE.md note confirmed:** the original "cross-lingual BM25 gives no recall gain on TR" is
 **correct** on the fixed eval (0.79→0.77). (An interim edit claiming the opposite was based on
 unmeasured numbers and has been reverted.)
 
-**Recommended retrieval config for the NEXT round (not a pass):** `ENABLE_RERANKING=true`,
-`ENABLE_AUTO_METADATA_FILTER=true`, `ENABLE_SOURCE_HINTS=true`, `ENABLE_CROSS_LINGUAL_BM25=false`,
-`ENABLE_SOURCE_DIVERSIFICATION=false`, `HYBRID_ALPHA=0.7`. Current best provisional M3 is 94%,
-which clears the numerical top-3 target on the current eval file, but it is still not certification:
-the eval set is not DELF-expert validated, M4 is unmeasured, and the enriched-ingestion artifact is
-still incomplete.
+**Recommended retrieval config for the NEXT round (not a production pass):** for source-recall
+certification experiments use `ENABLE_RERANKING=true`, `ENABLE_AUTO_METADATA_FILTER=true`,
+`ENABLE_SOURCE_HINTS=true`, `ENABLE_SOURCE_DIVERSIFICATION=true`,
+`ENABLE_CROSS_LINGUAL_BM25=false`, `HYBRID_ALPHA=0.7`. Current best provisional M3 is 94%, which
+clears the numerical top-3 target on the current eval file, but it is still not certification: the
+eval set is not DELF-expert validated, M4 is unmeasured, and the enriched-ingestion artifact is still
+incomplete.
 
 ### 2d. Final scores vs milestones
 
 | Metric | Target | Achieved (live) | Met? |
 |---|---|---|---|
 | Top-3 source recall (M3) — baseline | ≥ 90% | 0.70 | ❌ no |
-| Top-3 source recall (M3) — reranker + guarded PO auto metadata + source hints | ≥ 90% | 0.94 provisional | ✅ numeric target only |
+| Top-3 source recall (M3) — source hints + metadata + diversification, no rerank | ≥ 90% | 0.93 provisional | ✅ numeric target only |
+| Top-3 source recall (M3) — full recall mode with rerank | ≥ 90% | 0.94 provisional | ✅ numeric target only |
 | Citation accuracy (M4) | ≥ 95% | not measured | ❌ pending |
 | RAGAS faithfulness / context_precision | _(set)_ | not measured | pending |
 
