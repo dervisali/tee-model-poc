@@ -41,12 +41,10 @@ python -m src.ingestion
 |---|---|
 | `app.py` | Streamlit UI — 6 tabs, 1039 lines |
 | `src/config.py` | All settings via Pydantic-Settings; read from `.env` |
-| `src/retrieval.py` | `retrieve_context()` — hybrid BM25+dense, parent-doc fetch, RRF fusion, optional metadata pre-filter + LLM rerank |
+| `src/retrieval.py` | `retrieve_context()` — hybrid BM25+dense, parent-doc fetch, RRF fusion |
 | `src/generators.py` | `generate_process_map/error_cards/glossary/simulation()` |
 | `src/ingestion.py` | Document loading, chunking, embedding, ChromaDB write |
 | `src/chunk_metadata.py` | `ChunkMetadata` Pydantic schema for all chunk metadata fields |
-| `src/metadata_filter.py` | `build_where_clause()` / `detect_filters()` — level/skill/doc_type pre-filter before vector search |
-| `src/reranker.py` | `rerank()` — LLM-as-reranker second-stage precision (gated by `ENABLE_RERANKING`) |
 | `src/query_translator.py` | Language detection + TR→FR translation for BM25 path |
 | `src/hybrid_search.py` | BM25 index (French: Snowball+élision+stop-words; Turkish: basic norm) |
 | `src/prompt_optimizer.py` | A/B prompt variants; LLM judge scores grounding/completeness/usefulness |
@@ -57,8 +55,7 @@ python -m src.ingestion
 
 ```
 User query
-  → detect language → cross-lingual (TR) queries use dense-only by default
-       (ENABLE_CROSS_LINGUAL_BM25=true restores TR→FR translation + BM25)
+  → detect language → translate query (TR→FR, BM25 path only)
   → dense retrieval (gemini-embedding-001, ChromaDB tee_children)
   → BM25 retrieval (bm25_index.pkl)
   → RRF fusion (HYBRID_ALPHA=0.7 dense, 0.3 BM25, k=60)
@@ -97,26 +94,26 @@ User query
 | `ENABLE_HYBRID_SEARCH` | `true` | — | Active |
 | `ENABLE_CONFIDENCE_SCORING` | `true` | — | Active; second LLM pass per generation |
 | `ENABLE_QUERY_REWRITING` | `false` | — | Off — slow, 3× LLM calls at retrieval time |
-| `ENABLE_RERANKING` | `false` | — | Off — LLM-as-reranker adds 1 LLM call (latency/cost). On = over-fetch `RERANK_FETCH_K` (20) candidates → rerank to top_k. Quality win, not speed. **Phase 2 (2026-05-30) live measurement on the fixed 50-Q eval: best non-destructive lever — recall@5 0.79→0.83 (grille 0.50→0.85, TR 0.79→0.90), but noisy (FR 0.79→0.77) and still < 0.90 M3 line. Recommended ON, insufficient alone.** |
-| `ENABLE_CROSS_LINGUAL_BM25` | `false` | — | Off — cross-lingual (TR query → FR corpus) queries fall back to dense-only. Retrieval eval showed BM25+translation gives **no** recall/MRR gain on TR queries but costs a ~0.6–1.1s translation LLM call. Same-language (FR) queries stay hybrid (BM25 helps ranking there). On = restore TR→FR translation + hybrid. |
 | `MOCK_MODE` | `false` | — | Off; set to `true` for UI testing without API |
 
 ## Known Issues
 
-- **Milestones M3/M4 — MEASURED 2026-06-07, both clear their numeric gates (engineering-grade; read the caveats below before quoting these).** Eval = `evaluation/delf_questions.json` (50 bilingual Q&A).
-  - **M3** (top-3 source recall ≥90%): **93%** (recall@5 = 0.95) on the 50-Q eval. ⚠️ Achieved ONLY with the source-recall levers now enabled in `.env` (`ENABLE_AUTO_METADATA_FILTER`, `ENABLE_SOURCE_HINTS`, `ENABLE_SOURCE_DIVERSIFICATION`); the committed config *defaults* (levers off) still give ~70%. Artifacts: `evaluation/results/recall_baseline_*.json`, `lever_sweep_*.json`.
-  - **M4** (citation accuracy ≥95%): **96% (48/50)** after the d39 input-classifier + d03 citation-gate fixes (commit `e217f42`). Deterministic floor ~94% (those two fixes are tested); ~1 pt rides on generation variance. d04/d40 still fail — model emits 0 citations despite correct retrieval (needs generation-prompt work, not gate changes). Artifact: `evaluation/results/citation_grounding_*.json`.
-  - **⚠️ Provenance:** the eval ground truth is **AI-validated, NOT expert-validated** (no DELF examiner sign-off — by project decision). These are **engineering metrics**, not a formal certification: `scripts.apply_expert_validation` rejects the AI-marked review (guard), so `delf_questions.validated.json` + the cert manifest do **not** exist. **Unsupervised-production = still 🔴 NO-GO** (see `PRODUCTION_READINESS.md`).
-  - **DB-read caution:** direct ChromaDB reads can mutate `chroma.sqlite3`. Measure against a **disposable copy** and verify the live DB hash is unchanged (pattern in `scripts/lever_sweep.py`).
+- **Milestones M3/M4 — MEASURED 2026-06-07, both clear their numeric gates (engineering-grade; mind the caveats).** Eval = `evaluation/delf_questions.json` (50 bilingual Q&A).
+  - **M3** (top-3 recall ≥90%): **93%** (recall@5 = 0.95). ⚠️ ONLY with the source-recall levers now in `.env` (`ENABLE_AUTO_METADATA_FILTER`, `ENABLE_SOURCE_HINTS`, `ENABLE_SOURCE_DIVERSIFICATION`); committed defaults (levers off) ≈ 70%. Artifacts: `evaluation/results/recall_baseline_*.json`, `lever_sweep_*.json`.
+  - **M4** (citation accuracy ≥95%): **96% (48/50)** after the d39/d03 safety fixes (commit `e217f42`); deterministic floor ~94%, ~1 pt is generation variance; d04/d40 still fail (model emits 0 citations despite correct retrieval). Artifact: `evaluation/results/citation_grounding_*.json`.
+  - **⚠️ Eval is AI-validated, NOT expert-validated** (project decision). Engineering metrics, **not** a formal certification (`scripts.apply_expert_validation` rejects the AI-marked review; no `*.validated.json`/manifest). **Unsupervised-production = still 🔴 NO-GO** (`PRODUCTION_READINESS.md`).
+  - **DB-read caution:** direct ChromaDB reads can mutate `chroma.sqlite3`; measure against a disposable copy and verify the live DB hash (see `scripts/lever_sweep.py`).
 - **App header says "TEE"** — The main title still shows the old acronym; DELF rebrand of the header is pending.
 - **ChromaDB is local only** — Cloud Run ephemeral filesystem drops the DB on restart. GCS FUSE mount for persistence not yet implemented.
+- **`src/metadata_filter.py` not implemented** — Pre-filtering by level/skill/doc_type before vector search (Phase 6) is planned but missing.
+- **`src/evaluator.py` hardcoded to langchain-google-vertexai** — breaks under `INFERENCE_BACKEND=public_genai`.
 
 ## Deferred / Not Yet Implemented
 
-- **Metadata pre-filter not wired into UI** — `src/metadata_filter.py` exists and `retrieve_context(metadata_filter=...)` works; no UI control surfaces it yet (callers pass filters programmatically). `detect_filters()` auto-detect is available but not called by default.
-- Local cross-encoder / hosted rerank API — rejected in favor of LLM-as-reranker (`src/reranker.py`); revisit only if rerank latency becomes a bottleneck.
+- Metadata pre-filtering (`src/metadata_filter.py`) — queries like "B2 PO grilles only"
+- Cross-encoder reranking after hybrid search
 - GCS FUSE mount for ChromaDB persistence on Cloud Run
-- Expand DELF eval set toward 50 Q&A pairs
+- Bilingual evaluation set (50 Q&A pairs)
 - User feedback loop (thumbs up/down on generated content)
 - **Vertex context caching for chatbot/generators** — investigated, skipped: static system-prompt portions (~700-900 tokens for chatbot, ~150-250 for generators) are below Gemini 2.5 Flash's 1,024-token implicit cache threshold. Revisit if (a) static rules grow past 1,024 tokens by embedding examples/FAQ, or (b) migrating to Gemini Pro where per-token cost makes explicit caching worthwhile.
 
@@ -145,8 +142,4 @@ All in `src/config.py`. Key ones for `.env`:
 | `EMBEDDING_DIMENSION` | `3072` | Changing this requires full re-ingestion |
 | `CORPUS_PRIMARY_LANGUAGE` | `fr` | Controls BM25 tokenizer + stop-words |
 | `OUTPUT_LANGUAGE` | `tr` | Default generation output language |
-| `ENABLE_CROSS_LINGUAL_BM25` | `false` | `true` = translate TR→FR for BM25 (hybrid); default off → cross-lingual queries use dense-only |
-| `ENABLE_RERANKING` | `false` | `true` = LLM reranks top candidates after fusion |
-| `RERANK_FETCH_K` | `20` | Candidates over-fetched for the reranker before slicing to top_k |
-| `RERANK_MODEL` | `None` | Reranker model; `None` reuses `GENERATION_MODEL` |
 | `MOCK_MODE` | `false` | `true` = all LLM calls return fixtures |
