@@ -1,0 +1,26 @@
+{% from "macros.html" import confidence, chips %}
+<div class="rise">
+  <div class="flex items-center justify-between mb-4">
+    <h2 class="text-base font-semibold text-slate-800">⚠️ Hata Kartları <span class="text-slate-400 font-normal">· {{ d.hata_kartlari|length }} kart</span></h2>
+    {{ confidence(d._confidence) }}
+  </div>
+
+  <div class="grid gap-4 md:grid-cols-2">
+    {% for c in d.hata_kartlari %}
+    <div class="rounded-2xl border border-slate-200 bg-white shadow-card overflow-hidden">
+      <div class="bg-rose-50/70 border-b border-rose-100 px-4 py-3">
+        <div class="flex items-start gap-2">
+          <span class="shrink-0 mt-0.5 rounded-md bg-rose-100 px-1.5 py-0.5 text-[11px] font-bold text-rose-700">#{{ c.kart_no }}</span>
+          <h3 class="text-sm font-semibold text-rose-900">{{ c.hata }}</h3>
+        </div>
+      </div>
+      <div class="p-4 space-y-2.5 text-[13px]">
+        <div><span class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Kök neden</span><p class="mt-0.5 text-slate-600">{{ c.kok_neden }}</p></div>
+        <div><span class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Tespit yöntemi</span><p class="mt-0.5 text-slate-600">{{ c.tespit_yontemi }}</p></div>
+        <div class="rounded-lg bg-emerald-50 p-2.5"><span class="text-[11px] font-semibold uppercase tracking-wide text-emerald-600">✓ Doğru uygulama</span><p class="mt-0.5 text-emerald-800">{{ c.dogru_uygulama }}</p></div>
+        {{ chips(c.kaynak_chunk_indeksleri) }}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>

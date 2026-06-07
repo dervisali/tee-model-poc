@@ -1,0 +1,21 @@
+{% macro confidence(c) %}
+  {% if c and c.guven_skoru is not none %}
+    {% set s = c.guven_skoru %}
+    <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold
+      {% if s >= 0.85 %}bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200
+      {% elif s >= 0.70 %}bg-amber-50 text-amber-700 ring-1 ring-amber-200
+      {% else %}bg-rose-50 text-rose-700 ring-1 ring-rose-200{% endif %}">
+      <span class="h-1.5 w-1.5 rounded-full
+        {% if s >= 0.85 %}bg-emerald-500{% elif s >= 0.70 %}bg-amber-500{% else %}bg-rose-500{% endif %}"></span>
+      Güven {{ (s*100)|round|int }}%
+    </span>
+  {% endif %}
+{% endmacro %}
+
+{% macro chips(ids) %}
+  {% if ids %}
+    <div class="mt-3 flex flex-wrap gap-1.5">
+      {% for cid in ids %}<span class="cite-chip">{{ cid }}</span>{% endfor %}
+    </div>
+  {% endif %}
+{% endmacro %}

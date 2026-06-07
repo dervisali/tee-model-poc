@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}İnteraktif Simülasyon · DELF/DALF{% endblock %}
+{% block heading %}İnteraktif Simülasyon{% endblock %}
+{% block subheading %}Gerçekçi değerlendirme karar senaryolarıyla pratik yapın{% endblock %}
+
+{% block content %}
+<div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-card flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+  <div>
+    <h2 class="text-sm font-semibold text-slate-800">Yeni bir karar senaryosu üretin</h2>
+    <p class="mt-1 text-[13px] text-slate-500 max-w-xl">
+      Atipik kopya, puan uyuşmazlığı veya bant sınırı gibi kritik durumlarda kararınızı test edin.
+      Bir seçenek seçtiğinizde gerekçeli geri bildirim alırsınız.
+    </p>
+  </div>
+  <form>
+    <input type="hidden" name="language" value="tr">
+    <button type="button"
+            hx-post="/simulasyon" hx-include="closest form" hx-target="#sim-result" hx-swap="innerHTML"
+            hx-on::before-request="document.getElementById('sim-result').innerHTML=document.getElementById('sim-loading').innerHTML"
+            class="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 transition whitespace-nowrap">
+      🎯 Senaryo Üret
+    </button>
+  </form>
+</div>
+
+<div id="sim-result" class="mt-6"></div>
+
+<template id="sim-loading">
+  <div class="flex items-center justify-center gap-3 rounded-2xl border border-slate-200 bg-white p-10 text-slate-500">
+    <span class="h-5 w-5 rounded-full border-2 border-brand-200 border-t-brand-600 animate-spin"></span>
+    <span class="text-sm">Senaryo üretiliyor… {% if mock_mode %}(MOCK){% else %}(birkaç saniye){% endif %}</span>
+  </div>
+</template>
+{% endblock %}

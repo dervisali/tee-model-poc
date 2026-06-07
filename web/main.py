@@ -37,15 +37,17 @@ EXAMPLES = [
     "DELF B2 sözlü üretiminde hangi kriterler değerlendirilir?",
 ]
 
-# slug -> (heading, subheading) for the not-yet-rebuilt tabs
+# slug -> (heading, subheading) for the not-yet-rebuilt tabs (internal/dev tools)
 STUBS = {
-    "surec": ("Süreç Haritası & Hata Kartları", "Değerlendirme sürecinin haritası ve sık hatalar"),
-    "simulasyon": ("İnteraktif Simülasyon", "Gerçekçi değerlendirme karar senaryoları"),
     "onay": ("Uzman Onay Paneli", "Üretilen içeriğin uzman onayı"),
     "optimizer": ("Prompt Optimizer", "A/B prompt varyantları ve LLM-yargıç skorları"),
     "veritabani": ("Veritabanı Gezgini", "Korpus chunk'larını arama ve inceleme"),
     "veri": ("Veri Yükleme & İşleme", "Belge yükleme, parçalama, gömme"),
 }
+
+
+def _lang(language: str) -> str:
+    return language if language in ("tr", "fr") else "tr"
 
 
 _CITE = re.compile(r"\[Kaynak:\s*([^\]]+)\]")
@@ -101,6 +103,53 @@ def chat(request: Request, message: str = Form(...), language: str = Form("tr"))
         "refused": not sources,
     }
     return TEMPLATES.TemplateResponse(request, "partials/chat_exchange.html", ctx)
+
+
+def _generate(request: Request, partial: str, fn, **kwargs) -> HTMLResponse:
+    try:
+        data = fn(**kwargs)
+        return TEMPLATES.TemplateResponse(request, partial, {"request": request, "d": data})
+    except Exception as exc:  # noqa: BLE001 — surface generation failures in the UI
+        return TEMPLATES.TemplateResponse(
+            request, "partials/gen_error.html",
+            {"request": request, "error": f"{type(exc).__name__}: {exc}"},
+        )
+
+
+# --- Süreç Haritası & Hata Kartları ---------------------------------------
+@app.get("/surec", response_class=HTMLResponse)
+def surec(request: Request) -> HTMLResponse:
+    return TEMPLATES.TemplateResponse(request, "surec.html", base_ctx(request, "surec"))
+
+
+@app.post("/surec/process-map", response_class=HTMLResponse)
+def surec_process_map(request: Request, language: str = Form("tr")) -> HTMLResponse:
+    from src.generators import generate_process_map
+    return _generate(request, "partials/process_map.html", generate_process_map, language=_lang(language))
+
+
+@app.post("/surec/error-cards", response_class=HTMLResponse)
+def surec_error_cards(request: Request, language: str = Form("tr")) -> HTMLResponse:
+    from src.generators import generate_error_cards
+    return _generate(request, "partials/error_cards.html", generate_error_cards, language=_lang(language))
+
+
+@app.post("/surec/glossary", response_class=HTMLResponse)
+def surec_glossary(request: Request, language: str = Form("tr")) -> HTMLResponse:
+    from src.generators import generate_glossary
+    return _generate(request, "partials/glossary.html", generate_glossary, language=_lang(language))
+
+
+# --- İnteraktif Simülasyon -------------------------------------------------
+@app.get("/simulasyon", response_class=HTMLResponse)
+def simulasyon(request: Request) -> HTMLResponse:
+    return TEMPLATES.TemplateResponse(request, "simulasyon.html", base_ctx(request, "simulasyon"))
+
+
+@app.post("/simulasyon", response_class=HTMLResponse)
+def simulasyon_generate(request: Request, language: str = Form("tr")) -> HTMLResponse:
+    from src.generators import generate_simulation_scenario
+    return _generate(request, "partials/simulation.html", generate_simulation_scenario, language=_lang(language))
 
 
 @app.get("/{slug}", response_class=HTMLResponse)

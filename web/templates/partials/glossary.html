@@ -1,0 +1,22 @@
+{% from "macros.html" import confidence, chips %}
+<div class="rise">
+  <div class="flex items-center justify-between mb-4">
+    <h2 class="text-base font-semibold text-slate-800">📖 Terim Sözlüğü <span class="text-slate-400 font-normal">· {{ d.terimler|length }} terim</span></h2>
+    {{ confidence(d._confidence) }}
+  </div>
+
+  <div class="space-y-3">
+    {% for t in d.terimler %}
+    <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-card">
+      <h3 class="text-sm font-semibold text-brand-700">{{ t.terim }}</h3>
+      <p class="mt-1 text-[13px] leading-relaxed text-slate-600">{{ t.tanim }}</p>
+      {% if t.kullanim_ornegi %}
+      <p class="mt-2 rounded-lg bg-slate-50 p-2.5 text-[13px] italic text-slate-500">
+        <span class="not-italic font-semibold text-slate-400">Örnek · </span>{{ t.kullanim_ornegi }}
+      </p>
+      {% endif %}
+      {{ chips(t.kaynak_chunk_indeksleri) }}
+    </div>
+    {% endfor %}
+  </div>
+</div>
