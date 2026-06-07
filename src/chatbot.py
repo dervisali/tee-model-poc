@@ -365,10 +365,15 @@ def _citation_report(answer: str, sources: list[dict]) -> dict:
         for source in sources
         if source.get("parent_id")
     }
+    valid = [parent_id for parent_id in cited if parent_id in available]
     invalid = [parent_id for parent_id in cited if parent_id not in available]
     return {
-        "passed": bool(cited) and not invalid,
+        # En az bir geçerli atıf varsa yanıt grounded sayılır; geçersiz/uydurma
+        # atıf id'leri raporlanır ama tek başına yanıtı reddettirmez (önceden bir
+        # tek hatalı id tüm yanıtı düşürüyordu).
+        "passed": bool(valid),
         "cited_parent_ids": cited,
+        "valid_parent_ids": valid,
         "invalid_parent_ids": invalid,
         "cited_count": len(cited),
         "retrieved_count": len(sources),

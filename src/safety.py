@@ -95,7 +95,9 @@ _INJECTION_PATTERNS = [
 # İki sinyal yakınlık (proximity) ile: bir ÜRETİM FİİLİ + bir SINAV-ESERİ ismi.
 # İngilizce/Fransızca fiil-önce, Türkçe fiil-sonra olduğundan İKİ sıra da denenir.
 _EXAM_VERB = (
-    r"(?:write|create|generate|compose|draft|produce|invent|fabricate|prepare|"
+    # "compose" yalnızca üretim fiili olarak; Fransızca betimleyici "se compose
+    # (de)" = "...dan oluşur" değil (ör. "l'épreuve se compose de trois parties").
+    r"(?:write|create|generate|(?<!\bse\s)compose|draft|produce|invent|fabricate|prepare|"
     r"[ée]cri[ts]|cr[ée]e[zr]?|g[ée]n[èe]re[zr]?|r[ée]dige[zr]?|produi[ts]|"
     r"fabrique[zr]?|invente[zr]?|pr[ée]pare[zr]?|yaz|üret|oluştur|hazırla)"
 )

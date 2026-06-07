@@ -29,6 +29,24 @@ def test_validate_citations_rejects_unknown_parent_id():
     assert report["invalid_parent_ids"] == ["unknown_parent"]
 
 
+def test_validate_citations_passes_with_one_valid_despite_invalid():
+    """Bir geçerli atıf varsa, tek bir geçersiz/uydurma id yanıtı düşürmemeli;
+    geçersiz id raporlanır ama grounding kapısı reddetmez (d03 regresyonu)."""
+    from src.chatbot import validate_citations
+
+    sources = [{"parent_id": "manuel-exacor_par5"}]
+    answer = (
+        "İlk nokta [Kaynak: manuel-exacor.pdf — manuel-exacor_par5]. "
+        "İkinci nokta [Kaynak: dalf.pdf — dalf-c1_par24_bogus]."
+    )
+
+    report = validate_citations(answer, sources)
+
+    assert report["passed"] is True
+    assert report["valid_parent_ids"] == ["manuel-exacor_par5"]
+    assert report["invalid_parent_ids"] == ["dalf-c1_par24_bogus"]
+
+
 def test_validate_citations_accepts_dash_variants_and_keeps_internal_hyphens():
     """Gemini, em-dash'i en-dash veya düz tireye normalize edebilir; parent_id
     içindeki tireler (örn. manuel-exacor_par5) ayırıcı sayılmamalı."""
