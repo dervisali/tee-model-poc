@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Uzman Onay Paneli · DELF/DALF{% endblock %}
+{% block heading %}Uzman Onay Paneli{% endblock %}
+{% block subheading %}Üretilen içerik eğitime aktarılmadan önce uzman onayından geçer{% endblock %}
+
+{% block content %}
+<div class="rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 text-[13px] text-amber-800 flex items-start gap-2">
+  <span>🛡️</span>
+  <p><span class="font-semibold">Denetimli pilot.</span> Onaylanmamış içerikler examiner eğitimine aktarılmaz. Lütfen her öğeyi kaynaklarıyla birlikte inceleyip onaylayın veya reddedin.</p>
+</div>
+
+<div class="mt-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-card flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+  <div>
+    <h2 class="text-sm font-semibold text-slate-800">İnceleme kuyruğunu getir</h2>
+    <p class="mt-1 text-[13px] text-slate-500 max-w-xl">Üretilen hata kartlarını uzman incelemesi için yükler. Her kartı onaylayın ya da reddedin.</p>
+  </div>
+  <form>
+    <input type="hidden" name="language" value="tr">
+    <button type="button"
+            hx-post="/onay/review" hx-include="closest form" hx-target="#queue" hx-swap="innerHTML"
+            hx-on::before-request="document.getElementById('queue').innerHTML=document.getElementById('onay-loading').innerHTML"
+            class="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 transition whitespace-nowrap">
+      📋 İncelemeye Getir
+    </button>
+  </form>
+</div>
+
+<div id="queue" class="mt-6"></div>
+
+<template id="onay-loading">
+  <div class="flex items-center justify-center gap-3 rounded-2xl border border-slate-200 bg-white p-10 text-slate-500">
+    <span class="h-5 w-5 rounded-full border-2 border-brand-200 border-t-brand-600 animate-spin"></span>
+    <span class="text-sm">İçerik getiriliyor… {% if mock_mode %}(MOCK){% else %}(birkaç saniye){% endif %}</span>
+  </div>
+</template>
+{% endblock %}

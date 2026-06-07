@@ -39,7 +39,6 @@ EXAMPLES = [
 
 # slug -> (heading, subheading) for the not-yet-rebuilt tabs (internal/dev tools)
 STUBS = {
-    "onay": ("Uzman Onay Paneli", "Üretilen içeriğin uzman onayı"),
     "optimizer": ("Prompt Optimizer", "A/B prompt varyantları ve LLM-yargıç skorları"),
     "veritabani": ("Veritabanı Gezgini", "Korpus chunk'larını arama ve inceleme"),
     "veri": ("Veri Yükleme & İşleme", "Belge yükleme, parçalama, gömme"),
@@ -150,6 +149,18 @@ def simulasyon(request: Request) -> HTMLResponse:
 def simulasyon_generate(request: Request, language: str = Form("tr")) -> HTMLResponse:
     from src.generators import generate_simulation_scenario
     return _generate(request, "partials/simulation.html", generate_simulation_scenario, language=_lang(language))
+
+
+# --- Uzman Onay Paneli (light governance review) --------------------------
+@app.get("/onay", response_class=HTMLResponse)
+def onay(request: Request) -> HTMLResponse:
+    return TEMPLATES.TemplateResponse(request, "onay.html", base_ctx(request, "onay"))
+
+
+@app.post("/onay/review", response_class=HTMLResponse)
+def onay_review(request: Request, language: str = Form("tr")) -> HTMLResponse:
+    from src.generators import generate_error_cards
+    return _generate(request, "partials/approval_queue.html", generate_error_cards, language=_lang(language))
 
 
 @app.get("/{slug}", response_class=HTMLResponse)
