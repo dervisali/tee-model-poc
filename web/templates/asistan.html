@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Asistan · DELF/DALF Sınavcı Asistanı{% endblock %}
+{% block heading %}Asistan{% endblock %}
+{% block subheading %}Korpus-temelli sorular · yanıtlar kaynaklarıyla birlikte gelir{% endblock %}
+
+{% block content %}
+<div class="flex flex-col" style="min-height: calc(100vh - 11rem)">
+
+  <!-- Chat log -->
+  <div id="chat-log" class="flex-1 space-y-6">
+    <div id="empty-state" class="rounded-2xl border border-dashed border-slate-300 bg-white/60 p-8 text-center">
+      <div class="text-3xl mb-2">💬</div>
+      <h2 class="text-base font-semibold text-slate-800">DELF/DALF değerlendirmesi hakkında soru sorun</h2>
+      <p class="mt-1 text-sm text-slate-500 max-w-md mx-auto">
+        Grille kriterleri, descripteur'lar, çift düzeltme ve metodoloji.
+        Her yanıt yalnızca resmi korpusa dayandırılır ve kaynaklarıyla gösterilir.
+      </p>
+      <div class="mt-5 flex flex-wrap justify-center gap-2">
+        {% for ex in examples %}
+        <button type="button"
+                class="example-chip rounded-full bg-brand-50 text-brand-700 ring-1 ring-brand-100 px-3.5 py-1.5 text-xs font-medium hover:bg-brand-100 transition"
+                data-q="{{ ex }}">{{ ex }}</button>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Composer -->
+  <div class="sticky bottom-0 pt-4 mt-4">
+    <form id="chat-form" hx-post="/chat" hx-target="#chat-log" hx-swap="beforeend"
+          hx-on::after-request="if(event.detail.successful){this.reset(); document.getElementById('empty-state')?.remove(); scrollChat();}"
+          class="rounded-2xl border border-slate-200 bg-white shadow-card p-2.5">
+      <div class="flex items-end gap-2">
+        <textarea id="msg" name="message" rows="1" required
+                  placeholder="Sorunuzu yazın… (ör. «Çift düzeltmede görüş ayrılığı nasıl çözülür?»)"
+                  class="flex-1 resize-none bg-transparent px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none max-h-40"
+                  oninput="autogrow(this)"
+                  onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();document.getElementById('chat-form').requestSubmit();}"></textarea>
+        <select name="language" class="rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-xs text-slate-600 focus:outline-none">
+          <option value="tr">TR</option>
+          <option value="fr">FR</option>
+        </select>
+        <button type="submit"
+                class="send-btn inline-flex items-center gap-1.5 rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 transition">
+          <span class="htmx-indicator h-3.5 w-3.5 rounded-full border-2 border-white/40 border-t-white animate-spin"></span>
+          Gönder
+        </button>
+      </div>
+    </form>
+    <p class="mt-2 text-center text-[11px] text-slate-400">
+      Yanıtlar yalnızca korpusa dayandırılır; kaynak bulunamazsa asistan yanıt vermez.
+    </p>
+  </div>
+</div>
+
+<script>
+  function autogrow(el){ el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,160)+'px'; }
+  function scrollChat(){ const m=document.querySelector('main'); if(m) m.scrollTop=m.scrollHeight; }
+  document.addEventListener('click', e=>{
+    const chip=e.target.closest('.example-chip');
+    if(chip){ const t=document.getElementById('msg'); t.value=chip.dataset.q; autogrow(t); t.focus(); }
+  });
+</script>
+{% endblock %}
